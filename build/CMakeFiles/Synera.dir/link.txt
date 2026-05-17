@@ -1,3 +1,3 @@
-"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E rm -f CMakeFiles\Synera.dir/objects.a
-C:\Qt\Tools\mingw1310_64\bin\ar.exe qc CMakeFiles\Synera.dir/objects.a @CMakeFiles\Synera.dir\objects1.rsp
-C:\mingw64\bin\g++.exe -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG -g -Wl,--whole-archive CMakeFiles\Synera.dir/objects.a -Wl,--no-whole-archive -o Synera.exe -Wl,--out-implib,libSynera.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\Synera.dir\linkLibs.rsp
+C:\Qt\Tools\CMake_64\bin\cmake.exe -E rm -f CMakeFiles\Synera.dir/objects.a
+C:\mingw64\bin\ar.exe qc CMakeFiles\Synera.dir/objects.a @CMakeFiles\Synera.dir\objects1.rsp
+C:\mingw64\bin\g++.exe -Wl,--whole-archive CMakeFiles\Synera.dir/objects.a -Wl,--no-whole-archive -o Synera.exe -Wl,--out-implib,libSynera.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\Synera.dir\linkLibs.rsp

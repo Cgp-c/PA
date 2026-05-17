@@ -389,7 +389,8 @@ CMakeFiles/Synera.dir/main.cpp.obj: C:\Users\cgp83\Desktop\PA\main.cpp \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qalloc.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qguiapplication_platform.h \
  C:\Users\cgp83\Desktop\PA\synera.h \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/QWidget \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMainWindow \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmainwindow.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qwidget.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qaction.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qkeysequence.h \
@@ -401,4 +402,24 @@ CMakeFiles/Synera.dir/main.cpp.obj: C:\Users\cgp83\Desktop\PA\main.cpp \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qfontmetrics.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qfontinfo.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qfontvariableaxis.h \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/qsizepolicy.h
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qsizepolicy.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qtabwidget.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QTimer \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qtimer.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QElapsedTimer \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qelapsedtimer.h \
+ C:/Users/cgp83/Desktop/PA/build/Synera_autogen/include/ui_synera.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QVariant \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QApplication \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMainWindow \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMenuBar \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmenubar.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmenu.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QPushButton \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qpushbutton.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qabstractbutton.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QStatusBar \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qstatusbar.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QWidget \
+ C:\Users\cgp83\Desktop\PA\board.h C:\Users\cgp83\Desktop\PA\unit.h \
+ C:\Users\cgp83\Desktop\PA\weapon.h

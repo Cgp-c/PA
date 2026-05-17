@@ -218,3 +218,274 @@
 ## 说明与致谢
 
 项目玩法灵感来自《The Last Flame》《云顶之弈》，经教学化抽象，重点训练面向对象设计能力。
+
+---
+
+## 当前代码架构（v0.1 — Starter 框架）
+
+基于 **Qt6 + C++17 + MinGW**，采用 **事件驱动游戏循环**（QTimer @ ~60fps），在 `Synera` 主窗口内完成 8×8 方形棋盘渲染、鼠标点选交互与回合制战斗。
+
+### 文件树
+
+```text
+PA/
+├─ CMakeLists.txt
+├─ README.md
+├─ synera.ui                  # Qt Designer UI 布局
+├─ main.cpp                   # 入口 + 游戏主循环框架说明
+├─ synera.h / synera.cpp      # 主窗口、棋盘渲染、回合逻辑
+├─ unit.h / unit.cpp          # 单位基类
+├─ hero.h / hero.cpp          # 我方英雄（派生类）
+├─ enemy.h / enemy.cpp        # 敌方单位（派生类）
+├─ weapon.h / weapon.cpp      # 装备类
+└─ board.h / board.cpp        # 8×8 棋盘数据
+```
+
+---
+
+### 1. `Position` 结构体（`unit.h`）
+
+坐标抽象，表示棋盘上的格子位置。
+
+| 成员 | 类型 | 说明 |
+|------|------|------|
+| `x` | `int` | 列坐标 (0–7) |
+| `y` | `int` | 行坐标 (0–7) |
+| `operator==` | `bool` | 比较两个位置是否相同 |
+
+---
+
+### 2. `Weapon` — 装备类（`weapon.h/cpp`）
+
+描述一件可穿戴装备，决定单位的攻击力加成。
+
+| 成员 / 方法 | 类型 | 说明 |
+|-------------|------|------|
+| `m_name` | `std::string` | 装备名称（如 "Iron Sword"） |
+| `m_damage` | `int` | 攻击力加成数值 |
+| `Weapon(name, damage)` | 构造函数 | 创建指定名称与攻击力的装备 |
+| `getName()` | `std::string` | 获取装备名称 |
+| `getDamage()` | `int` | 获取攻击力加成 |
+
+**接口**：`Unit` 通过 `setEquipment(Weapon*)` / `getEquipment()` 穿戴 / 查询装备，`attack()` 时读取装备攻击力。
+
+---
+
+### 3. `Unit` — 单位抽象基类（`unit.h/cpp`）
+
+所有战斗实体的公共基类，定义属性与纯虚接口，由 `Hero` / `Enemy` 继承。
+
+| 成员 / 方法 | 类型 | 说明 |
+|-------------|------|------|
+| `m_name` | `std::string` | 单位名称 |
+| `m_hp` | `int` | 当前生命值 |
+| `m_maxHp` | `int` | 最大生命值 |
+| `m_pos` | `Position` | 当前棋盘位置 |
+| `m_equipment` | `Weapon*` | 穿戴的装备（可为 `nullptr`） |
+| `m_disappeared` | `bool` | 是否已消失（死亡后移除出场） |
+| `Unit(name, hp, maxHp, x, y)` | 构造函数 | 初始化所有属性，装备置空，未消失 |
+| `attack(target)` | `virtual void = 0` | **纯虚函数** — 攻击目标单位，子类分别实现 |
+| `isDead()` | `bool` | HP ≤ 0 即死亡 |
+| `isDisappeared()` | `bool` | 是否已从场上移除 |
+| `takeDamage(damage)` | `void` | 扣减 HP（不低于 0） |
+| `setDisappeared(flag)` | `void` | 标记消失状态 |
+| `getName()` / `getHp()` / `getMaxHp()` | getter | 属性访问 |
+| `getPosition()` | `Position` | 获取当前坐标 |
+| `getEquipment()` | `Weapon*` | 获取装备指针 |
+| `setPosition(x, y)` | `void` | 更新坐标 |
+| `setEquipment(weapon)` | `void` | 穿戴装备 |
+| `setHp(hp)` | `void` | 设置生命值 |
+
+**多态接口**：`attack()` 在 `Hero` 中基于装备伤害计算（默认 10），在 `Enemy` 中同样基于装备（默认 8），攻击后若目标死亡则自动调用 `setDisappeared(true)`。
+
+---
+
+### 4. `Hero` — 我方单位（`hero.h/cpp`，继承 `Unit`）
+
+| 成员 | 说明 |
+|------|------|
+| `Hero(name, hp, maxHp, x, y)` | 构造函数，委托 `Unit` |
+| `attack(target)` | 以装备伤害（或默认 10）攻击目标，目标死亡则消失 |
+
+---
+
+### 5. `Enemy` — 敌方单位（`enemy.h/cpp`，继承 `Unit`）
+
+| 成员 | 说明 |
+|------|------|
+| `Enemy(name, hp, maxHp, x, y)` | 构造函数，委托 `Unit` |
+| `attack(target)` | 以装备伤害（或默认 8）攻击目标，目标死亡则消失 |
+
+---
+
+### 6. `Board` — 8×8 方形棋盘（`board.h/cpp`）
+
+纯数据层，管理格子占用与合法性检查。
+
+| 成员 / 方法 | 说明 |
+|-------------|------|
+| `SIZE = 8` | `static constexpr`，棋盘边长 |
+| `m_grid[8][8]` | `Unit*` 二维数组，`nullptr` 表示空格 |
+| `Board()` | 初始化全空 |
+| `placeUnit(unit, x, y)` | 若位置合法且为空则放置，更新 unit 的坐标 |
+| `getUnitAt(x, y)` | 返回格子上的单位指针（`nullptr` 表示空） |
+| `isOccupied(x, y)` | 该格是否已有单位 |
+| `removeUnit(x, y)` | 清空指定格 |
+| `isValidPosition(x, y)` | 坐标是否在 [0, SIZE) 范围内 |
+| `isPlayerHalf(y)` | 是否在我方半场（y ≥ SIZE/2，即 row 4–7） |
+| `isEnemyHalf(y)` | 是否在敌方半场（y < SIZE/2，即 row 0–3） |
+| `clear()` | 清空全部格子 |
+
+**接口角色**：`Synera` 在 `placeUnit / removeUnit` 时仅通过 `Board` 操作；`Board` 不持有单位所有权（`Unit*` 为裸指针，生命周期由 `Synera::m_units` 管理）。
+
+---
+
+### 7. `Synera` — 游戏主窗口（`synera.h/cpp`）
+
+继承 `QMainWindow`，是全部游戏逻辑的集中入口。**同时承担 Controller（回合调度 / 规则校验）和 View（paintEvent 渲染）职责。**
+
+#### 7.1 成员变量
+
+| 变量 | 类型 | 说明 |
+|------|------|------|
+| `ui` | `Ui::MainWindow*` | Qt Designer UI 指针 |
+| `m_gameTimer` | `QTimer*` | 16ms 定时器，驱动 `gameLoop()` |
+| `m_frameClock` | `QElapsedTimer` | 帧计时，计算 deltaTime |
+| `m_board` | `Board` | 棋盘数据 |
+| `m_units` | `vector<unique_ptr<Unit>>` | 所有单位的生命周期持有者 |
+| `m_weapons` | `vector<unique_ptr<Weapon>>` | 所有装备的生命周期持有者 |
+| `m_selectedUnit` | `Unit*` | 当前选中的单位（裸指针，不持有） |
+| `m_isPlayerTurn` | `bool` | 是否玩家回合 |
+| `m_gameOver` | `bool` | 游戏是否结束 |
+
+#### 7.2 常量
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `CELL_SIZE` | 80 | 每格像素大小 |
+| `BOARD_OFFSET_X` | 200 | 棋盘左上角 X 偏移 |
+| `BOARD_OFFSET_Y` | 80 | 棋盘左上角 Y 偏移 |
+| `BOARD_PIXEL_SIZE` | 640 | 棋盘总像素边长 (80×8) |
+
+#### 7.3 核心方法
+
+**初始化**
+
+| 方法 | 说明 |
+|------|------|
+| `initGame()` | 重置全部状态：清空棋盘、创建单位、重置回合标记 |
+| `initUnits()` | 创建 3 个 Hero + 3 个 Enemy + 4 件 Weapon，放置到 `m_board` 上，所有权移入 `m_units` / `m_weapons` |
+
+**游戏主循环**
+
+| 方法 | 说明 |
+|------|------|
+| `gameLoop()` [slot] | QTimer 回调：计算 deltaTime → 非玩家回合则调用 `processEnemyTurn()` → `update()` 触发重绘 |
+
+**渲染（paintEvent 调用链）**
+
+| 方法 | 说明 |
+|------|------|
+| `paintEvent(event)` | Qt 绘制入口，依次调用三个 render 函数 |
+| `renderBoard(painter)` | 绘制 8×8 方形网格：半场底色（玩家蓝灰 / 敌方暗红）、选中高亮绿色、坐标标注 |
+| `renderUnits(painter)` | 遍历棋盘绘制单位：圆角矩形 + 名字 + HP 条（颜色渐变）+ HP 数值 + 装备名 |
+| `renderUI(painter)` | 右侧面板：回合状态提示、操作说明、存活单位列表及属性 |
+
+**鼠标交互**
+
+| 方法 | 说明 |
+|------|------|
+| `mousePressEvent(event)` | Qt 鼠标事件入口，仅在玩家回合且未结束时响应 |
+| `processPlayerClick(mousePos)` | 将像素坐标转棋盘坐标，分 5 种情况：① 选中我方英雄 ② 切换选中 ③ 攻击相邻敌人 ④ 移动至相邻空格（仅限我方半场） ⑤ 点空取消选中 |
+
+**敌方 AI**
+
+| 方法 | 说明 |
+|------|------|
+| `processEnemyTurn()` | 收集存活 Enemy，每个依次：若与英雄相邻则攻击，否则向最近英雄移动 1 步（曼哈顿方向） |
+| `findNearestHero(from)` | 欧氏距离最近且未死亡/消失的 Hero 位置；无存活 Hero 返回 `(-1,-1)` |
+
+**规则辅助**
+
+| 方法 | 说明 |
+|------|------|
+| `isAdjacent(a, b)` | 曼哈顿距离 = 1（上下左右相邻） |
+| `checkWinCondition()` | 检查是否一方全灭 → `m_gameOver = true` |
+| `cellRect(x, y)` | 棋盘格 → 像素矩形（QRect） |
+| `findUnitAt(x, y)` | 查询棋盘上的单位（委托 Board） |
+
+**键盘**
+
+| 方法 | 说明 |
+|------|------|
+| `keyPressEvent(event)` | 按 R 键重置游戏（调用 `initGame()`） |
+
+---
+
+### 8. `main.cpp` — 游戏入口与主循环框架
+
+| 职责 | 说明 |
+|------|------|
+| 创建 `QApplication` | Qt 事件系统基础 |
+| 创建 `Synera` 主窗口 | 在其中初始化棋盘、单位、定时器 |
+| `mainWin.show()` | 显示窗口 |
+| `app.exec()` | 进入 Qt 事件循环 —— 此后由 `QTimer::timeout` 信号驱动帧更新 |
+
+**游戏主循环链路**：
+
+```
+QTimer::timeout (16ms)
+  → Synera::gameLoop()
+    → processEnemyTurn()   [非玩家回合时]
+    → update()
+      → paintEvent()
+        → renderBoard() + renderUnits() + renderUI()
+```
+
+---
+
+### 9. 全局变量
+
+**本项目无全局变量。** 所有游戏状态封装在 `Synera` 类的成员中：
+- 棋盘数据 → `Synera::m_board`
+- 单位生命周期 → `Synera::m_units`
+- 装备生命周期 → `Synera::m_weapons`
+- 回合状态 → `Synera::m_isPlayerTurn`, `Synera::m_gameOver`
+- 选中状态 → `Synera::m_selectedUnit`
+
+---
+
+### 10. 类间关系（UML 概要）
+
+```
+Unit (abstract)  ◄──── Weapon*  (装备，聚合)
+  ▲
+  ├── Hero    (我方，attack 默认伤害 10)
+  └── Enemy   (敌方，attack 默认伤害 8)
+
+Board (8×8)  ◄──── Unit*[8][8]  (棋盘持有单位裸指针)
+  ▲
+  │ 使用
+  │
+Synera (QMainWindow)
+  ├── 持有 Board
+  ├── 持有 vector<unique_ptr<Unit>>   (生命周期管理)
+  ├── 持有 vector<unique_ptr<Weapon>> (生命周期管理)
+  ├── 持有 QTimer                     (游戏循环驱动)
+  └── 实现 paintEvent / mousePressEvent / keyPressEvent
+```
+
+---
+
+### 11. 与 PA 阶段一 Checklist 的对应
+
+| PA 要求 | 当前实现 |
+|---------|---------|
+| 8×8 棋盘 + 半场 | `Board` 类 + `isPlayerHalf()` / `isEnemyHalf()` |
+| 单位基类 Unit（HP 等） | `Unit` 抽象基类：HP / maxHp / name / position / equipment |
+| 我方/敌方通过 owner 区分 | 通过派生类 `Hero` / `Enemy` 区分（`dynamic_cast` 判定） |
+| 鼠标拖拽 | 改为 **点选式交互**（click-to-select, click-to-act），更简洁稳定 |
+| GUI 展示棋盘、血条等 | `renderBoard()` / `renderUnits()` / `renderUI()` 完整渲染 |
+| 回合制战斗 | 玩家行动 → 敌方 AI 自动响应 → 胜负判定 |
+
+> **关于交互方式的说明**：当前采用点选而非拖拽。拖拽实现需搭配 `mouseMoveEvent` 与实时碰撞检测，对 Starter 框架来说点选更直观且易调试，可在后续阶段切换为拖拽。

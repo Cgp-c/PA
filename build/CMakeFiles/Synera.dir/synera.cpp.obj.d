@@ -1,7 +1,7 @@
 CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:\Users\cgp83\Desktop\PA\synera.cpp C:\Users\cgp83\Desktop\PA\synera.h \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/QWidget \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/qwidget.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMainWindow \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmainwindow.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qtwidgetsglobal.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qtguiglobal.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qglobal.h \
@@ -158,6 +158,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qtguiexports.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qtwidgets-config.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qtwidgetsexports.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qwidget.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qwindowdefs.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qobjectdefs.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qnamespace.h \
@@ -387,4 +388,61 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qfontvariableaxis.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qsizepolicy.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qcursor.h \
- C:/Qt/6.11.0/mingw_64/include/QtGui/qbitmap.h
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qbitmap.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qtabwidget.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QTimer \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qtimer.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qbasictimer.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qabstracteventdispatcher.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qeventloop.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qdeadlinetimer.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QElapsedTimer \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qelapsedtimer.h \
+ C:/Users/cgp83/Desktop/PA/build/Synera_autogen/include/ui_synera.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QVariant \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QApplication \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qapplication.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qcoreapplication.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qcoreevent.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qnativeinterface.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qcoreapplication_platform.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qguiapplication.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qinputmethod.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qlocale.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qguiapplication_platform.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMainWindow \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMenuBar \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmenubar.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmenu.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QPushButton \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qpushbutton.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qabstractbutton.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QStatusBar \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qstatusbar.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QWidget \
+ C:\Users\cgp83\Desktop\PA\board.h C:\Users\cgp83\Desktop\PA\unit.h \
+ C:\Users\cgp83\Desktop\PA\weapon.h C:\Users\cgp83\Desktop\PA\hero.h \
+ C:\Users\cgp83\Desktop\PA\enemy.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QPainter \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qpainter.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qtextoption.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qpen.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qevent.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qiodevice.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qurl.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qeventpoint.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qvector2d.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qvectornd.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qpointingdevice.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qinputdevice.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qscreen.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QList \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QObject \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QRect \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QSize \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QSizeF \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QTransform \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qscreen_platform.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QKeyEvent \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QFont

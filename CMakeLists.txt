@@ -19,6 +19,16 @@ qt_add_executable(Synera
     synera.h
     synera.cpp
     synera.ui
+    unit.h
+    unit.cpp
+    hero.h
+    hero.cpp
+    enemy.h
+    enemy.cpp
+    weapon.h
+    weapon.cpp
+    board.h
+    board.cpp
 )
 
 target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)
