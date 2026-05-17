@@ -8,19 +8,26 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QFont>
-#include <cmath>
 #include <cstdlib>
+#include <algorithm>
+
+// ═══════════════════════════════════════════════════════════════
+// 构造 / 析构
+// ═══════════════════════════════════════════════════════════════
 
 Synera::Synera(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , m_selectedUnit(nullptr)
-    , m_isPlayerTurn(true)
+    , m_phase(GamePhase::Placement)
     , m_gameOver(false)
+    , m_combatTickCounter(0)
+    , m_draggedUnit(nullptr)
+    , m_dragFromPoolIndex(-1)
 {
     ui->setupUi(this);
-    setWindowTitle("Synera - 8x8 Battle Arena");
+    setWindowTitle("Synera - Auto Chess Arena");
     resize(1200, 800);
+    setMouseTracking(true);
 
     initGame();
 
@@ -30,70 +37,83 @@ Synera::Synera(QWidget *parent)
     m_frameClock.start();
 }
 
-Synera::~Synera()
-{
-    delete ui;
-}
+Synera::~Synera() { delete ui; }
 
-// ─── 游戏初始化 ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::initGame()
 {
-    initUnits();
-    m_selectedUnit = nullptr;
-    m_isPlayerTurn = true;
-    m_gameOver = false;
-}
-
-void Synera::initUnits()
-{
     m_units.clear();
+    m_weapons.clear();
+    m_unitPool.clear();
     m_board.clear();
+    m_draggedUnit = nullptr;
+    m_dragFromPoolIndex = -1;
+    m_phase = GamePhase::Placement;
+    m_gameOver = false;
+    m_combatTickCounter = 0;
 
-    // 装备
-    auto sword  = std::make_unique<Weapon>("Iron Sword", 15);
-    auto axe    = std::make_unique<Weapon>("Battle Axe", 20);
-    auto spear  = std::make_unique<Weapon>("Long Spear", 12);
-    auto club   = std::make_unique<Weapon>("Wooden Club", 8);
-
-    // 我方英雄（下半场 y ∈ [4,7]）
-    auto h1 = std::make_unique<Hero>("Warrior",   100, 100, 2, 6);
-    auto h2 = std::make_unique<Hero>("Archer",     80,  80, 5, 6);
-    auto h3 = std::make_unique<Hero>("Mage",       70,  70, 3, 7);
-    h1->setEquipment(sword.get());
-    h2->setEquipment(spear.get());
-    h3->setEquipment(nullptr);
-
-    // 敌方单位（上半场 y ∈ [0,3]）
-    auto e1 = std::make_unique<Enemy>("Goblin",    60,  60, 2, 1);
-    auto e2 = std::make_unique<Enemy>("Orc",       90,  90, 5, 1);
-    auto e3 = std::make_unique<Enemy>("Skeleton",  50,  50, 3, 2);
-    e1->setEquipment(club.get());
-    e2->setEquipment(axe.get());
-    e3->setEquipment(nullptr);
-
-    m_board.placeUnit(h1.get(), 2, 6);
-    m_board.placeUnit(h2.get(), 5, 6);
-    m_board.placeUnit(h3.get(), 3, 7);
-    m_board.placeUnit(e1.get(), 2, 1);
-    m_board.placeUnit(e2.get(), 5, 1);
-    m_board.placeUnit(e3.get(), 3, 2);
-
-    // 所有权转移
-    m_units.push_back(std::move(h1));
-    m_units.push_back(std::move(h2));
-    m_units.push_back(std::move(h3));
-    m_units.push_back(std::move(e1));
-    m_units.push_back(std::move(e2));
-    m_units.push_back(std::move(e3));
-
-    m_weapons.push_back(std::move(sword));
-    m_weapons.push_back(std::move(axe));
-    m_weapons.push_back(std::move(spear));
-    m_weapons.push_back(std::move(club));
+    generateUnitPool();
 }
 
-// ─── 游戏主循环 ────────────────────────────────────────────────
+void Synera::generateUnitPool()
+{
+    m_unitPool.clear();
+    // 随机生成：战士2~3个，法师1~2个，辅助1~2个
+    int wc = 2 + std::rand() % 2; // 2-3
+    int mc = 1 + std::rand() % 2; // 1-2
+    int sc = 1 + std::rand() % 2; // 1-2
+    m_unitPool.push_back({UnitType::Warrior, wc});
+    m_unitPool.push_back({UnitType::Mage,    mc});
+    m_unitPool.push_back({UnitType::Support, sc});
+}
+
+Unit* Synera::createUnitFromPool(UnitType type, bool isHero)
+{
+    if (isHero) {
+        switch (type) {
+            case UnitType::Warrior: { auto u = std::make_unique<WarriorHero>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Mage:    { auto u = std::make_unique<MageHero>();    Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Support: { auto u = std::make_unique<SupportHero>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+        }
+    } else {
+        switch (type) {
+            case UnitType::Warrior: { auto u = std::make_unique<WarriorEnemy>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Mage:    { auto u = std::make_unique<MageEnemy>();    Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Support: { auto u = std::make_unique<SupportEnemy>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+        }
+    }
+    return nullptr;
+}
+
+void Synera::startBattle()
+{
+    // 敌方随机生成 1战士 + 1法师 + 1辅助
+    UnitType enemyTypes[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support};
+    for (int i = 0; i < 3; ++i) {
+        Unit* eu = createUnitFromPool(enemyTypes[i], false);
+        // 在敌方半场 (row 0-3) 随机空位放置
+        bool placed = false;
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            int ex = std::rand() % Board::SIZE;
+            int ey = std::rand() % (Board::SIZE / 2);
+            if (m_board.placeUnit(eu, ex, ey)) { placed = true; break; }
+        }
+        if (!placed) {
+            for (int y = 0; y < Board::SIZE / 2 && !placed; ++y)
+                for (int x = 0; x < Board::SIZE && !placed; ++x)
+                    if (m_board.placeUnit(eu, x, y)) placed = true;
+        }
+    }
+
+    m_phase = GamePhase::Battle;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 游戏主循环
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::gameLoop()
 {
@@ -101,28 +121,38 @@ void Synera::gameLoop()
     m_frameClock.restart();
     Q_UNUSED(dt);
 
-    if (!m_isPlayerTurn && !m_gameOver) {
-        processEnemyTurn();
+    if (m_phase == GamePhase::Battle && !m_gameOver) {
+        ++m_combatTickCounter;
+        if (m_combatTickCounter >= TICK_INTERVAL) {
+            m_combatTickCounter = 0;
+            processCombatTick();
+        }
     }
 
-    update(); // 触发 paintEvent
+    update();
 }
 
-// ─── 绘制 ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 绘制入口
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
-
-    // 背景
-    painter.fillRect(rect(), QColor(30, 30, 40));
+    painter.fillRect(rect(), QColor(25, 25, 35));
 
     renderBoard(painter);
     renderUnits(painter);
+    renderBenchPool(painter);
+    renderDragGhost(painter);
     renderUI(painter);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 棋盘
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::renderBoard(QPainter& painter)
 {
@@ -130,33 +160,49 @@ void Synera::renderBoard(QPainter& painter)
         for (int x = 0; x < Board::SIZE; ++x) {
             QRect rc = cellRect(x, y);
 
-            // 半场颜色
-            QColor cellColor;
-            if (m_board.isPlayerHalf(y))
-                cellColor = QColor(40, 60, 90);   // 我方半场蓝灰
-            else
-                cellColor = QColor(80, 40, 40);   // 敌方半场暗红
+            QColor cellColor = m_board.isPlayerHalf(y)
+                ? QColor(40, 55, 80) : QColor(75, 38, 38);
 
-            // 选中高亮
-            if (m_selectedUnit) {
-                Position sp = m_selectedUnit->getPosition();
-                if (sp.x == x && sp.y == y)
-                    cellColor = QColor(60, 120, 60);
+            // 拖拽悬停高亮
+            if (m_draggedUnit && m_phase == GamePhase::Placement && m_board.isPlayerHalf(y)) {
+                QRect unitRect(m_dragCurrentPos.x() - CELL_SIZE / 2,
+                               m_dragCurrentPos.y() - CELL_SIZE / 2,
+                               CELL_SIZE, CELL_SIZE);
+                QRect inter = rc.intersected(unitRect);
+                if (inter.width() * inter.height() > (CELL_SIZE * CELL_SIZE) / 2
+                    && !m_board.isOccupied(x, y))
+                    cellColor = QColor(50, 90, 50);
             }
 
             painter.fillRect(rc, cellColor);
-            painter.setPen(QPen(QColor(80, 80, 100), 1));
+            painter.setPen(QPen(QColor(75, 75, 95), 1));
             painter.drawRect(rc);
-
-            // 坐标标注
-            painter.setPen(QColor(120, 120, 140));
-            QFont smallFont;
-            smallFont.setPixelSize(10);
-            painter.setFont(smallFont);
-            painter.drawText(rc.adjusted(2, 2, 0, 0),
-                             QString("(%1,%2)").arg(x).arg(y));
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 棋盘上的单位
+// ═══════════════════════════════════════════════════════════════
+
+static QColor typeFillColor(UnitType t, bool isHero)
+{
+    switch (t) {
+        case UnitType::Warrior: return isHero ? QColor(210, 100, 30)  : QColor(180, 70, 20);
+        case UnitType::Mage:    return isHero ? QColor(130, 80, 210)  : QColor(100, 55, 170);
+        case UnitType::Support: return isHero ? QColor(55, 170, 100)  : QColor(40, 140, 70);
+    }
+    return QColor(128, 128, 128);
+}
+
+static QString typeLabel(UnitType t)
+{
+    switch (t) {
+        case UnitType::Warrior: return QString::fromUtf8("\346\210\230"); // 战
+        case UnitType::Mage:    return QString::fromUtf8("\346\263\225"); // 法
+        case UnitType::Support: return QString::fromUtf8("\350\276\205"); // 辅
+    }
+    return "?";
 }
 
 void Synera::renderUnits(QPainter& painter)
@@ -164,311 +210,650 @@ void Synera::renderUnits(QPainter& painter)
     for (int y = 0; y < Board::SIZE; ++y) {
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* unit = m_board.getUnitAt(x, y);
-            if (!unit || unit->isDisappeared())
-                continue;
+            if (!unit || unit->isDisappeared()) continue;
+            if (unit == m_draggedUnit) continue;
 
             QRect rc = cellRect(x, y);
-            int margin = 6;
-            QRect unitRect = rc.adjusted(margin, margin, -margin, -margin);
+            int m = 6;
+            QRect ur = rc.adjusted(m, m, -m, -m);
 
-            // 颜色：我方蓝色，敌方红色
             bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
-            QColor fillColor = isHero ? QColor(60, 120, 220) : QColor(220, 60, 60);
-            QColor borderColor = isHero ? QColor(100, 180, 255) : QColor(255, 100, 100);
+            UnitType t = unit->getType();
+            QColor fill = typeFillColor(t, isHero);
+            QColor border = isHero ? QColor(100, 170, 255) : QColor(235, 90, 90);
 
-            // 选中边框加粗
-            if (unit == m_selectedUnit)
-                borderColor = QColor(255, 255, 100);
+            painter.setBrush(fill);
+            painter.setPen(QPen(border, 1));
+            painter.drawRoundedRect(ur, 6, 6);
 
-            painter.setBrush(fillColor);
-            painter.setPen(QPen(borderColor, unit == m_selectedUnit ? 3 : 1));
-            painter.drawRoundedRect(unitRect, 6, 6);
-
-            // 名字
+            // 角色标签（战/法/辅）
             painter.setPen(Qt::white);
+            QFont typeFont;
+            typeFont.setPixelSize(22);
+            typeFont.setBold(true);
+            painter.setFont(typeFont);
+            painter.drawText(ur, Qt::AlignCenter, typeLabel(t));
+
+            // 名字（顶部）
             QFont nameFont;
-            nameFont.setPixelSize(12);
+            nameFont.setPixelSize(10);
             nameFont.setBold(true);
             painter.setFont(nameFont);
-            painter.drawText(unitRect.adjusted(4, 4, 0, 0),
+            painter.drawText(ur.adjusted(3, 2, 0, 0),
                              QString::fromStdString(unit->getName()));
 
-            // HP 条
-            int barH = 8;
-            int barY = unitRect.bottom() - barH - 4;
+            // HP 条（底部）
+            int barH = 7;
+            int barY = ur.bottom() - barH - 2;
             double ratio = (double)unit->getHp() / unit->getMaxHp();
-            QRect barBg(unitRect.left() + 4, barY, unitRect.width() - 8, barH);
-            painter.setBrush(QColor(40, 40, 40));
+            QRect barBg(ur.left() + 2, barY, ur.width() - 4, barH);
+            painter.setBrush(QColor(30, 30, 30));
             painter.setPen(Qt::NoPen);
-            painter.drawRoundedRect(barBg, 3, 3);
+            painter.drawRoundedRect(barBg, 2, 2);
 
-            QColor hpColor = ratio > 0.5 ? QColor(80, 220, 80)
-                           : ratio > 0.25 ? QColor(220, 200, 40)
-                           : QColor(220, 60, 60);
-            QRect barFill(barBg.left(), barY,
-                          static_cast<int>(barBg.width() * ratio), barH);
-            painter.setBrush(hpColor);
-            painter.drawRoundedRect(barFill, 3, 3);
+            QColor hpC = ratio > 0.5 ? QColor(80, 210, 80)
+                       : ratio > 0.25 ? QColor(210, 190, 30)
+                       : QColor(210, 55, 55);
+            QRect barFill(barBg.left(), barY, (int)(barBg.width() * ratio), barH);
+            painter.setBrush(hpC);
+            painter.drawRoundedRect(barFill, 2, 2);
 
-            // HP 数字
             QFont hpFont;
-            hpFont.setPixelSize(9);
+            hpFont.setPixelSize(8);
             painter.setFont(hpFont);
             painter.setPen(Qt::white);
-            QString hpText = QString("%1/%2").arg(unit->getHp()).arg(unit->getMaxHp());
-            painter.drawText(barBg, Qt::AlignCenter, hpText);
+            painter.drawText(barBg, Qt::AlignCenter,
+                             QString("%1/%2").arg(unit->getHp()).arg(unit->getMaxHp()));
 
-            // 装备图标（如有）
+            // 装备
             if (unit->getEquipment()) {
-                painter.setPen(QColor(255, 215, 0));
+                painter.setPen(QColor(255, 210, 0));
                 QFont eqFont;
-                eqFont.setPixelSize(9);
+                eqFont.setPixelSize(8);
                 painter.setFont(eqFont);
-                painter.drawText(unitRect.adjusted(4, 0, 0, 0),
-                                 Qt::AlignBottom | Qt::AlignLeft,
-                                 QString("[%1]")
-                                     .arg(QString::fromStdString(
-                                         unit->getEquipment()->getName())));
+                painter.drawText(ur.adjusted(3, 0, 0, 0), Qt::AlignBottom | Qt::AlignLeft,
+                                 QString("[%1]").arg(QString::fromStdString(unit->getEquipment()->getName())));
             }
         }
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 左侧备战池
+// ═══════════════════════════════════════════════════════════════
+
+QRect Synera::poolSlotRect(int index) const
+{
+    return QRect(POOL_X, POOL_Y + index * (POOL_SLOT_H + 10), POOL_WIDTH, POOL_SLOT_H);
+}
+
+int Synera::findPoolSlotAt(const QPoint& pixel) const
+{
+    for (int i = 0; i < (int)m_unitPool.size(); ++i)
+        if (poolSlotRect(i).contains(pixel)) return i;
+    return -1;
+}
+
+void Synera::renderBenchPool(QPainter& painter)
+{
+    if (m_phase != GamePhase::Placement) return;
+
+    // 标题
+    QFont titleFont;
+    titleFont.setPixelSize(13);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(180, 180, 200));
+    painter.drawText(POOL_X, POOL_Y - 12, "Unit Pool");
+
+    for (int i = 0; i < (int)m_unitPool.size(); ++i) {
+        QRect rc = poolSlotRect(i);
+        const PoolSlot& slot = m_unitPool[i];
+
+        // 底色
+        painter.setBrush(QColor(40, 40, 50));
+        painter.setPen(QPen(slot.count > 0 ? QColor(110, 110, 130) : QColor(60, 60, 70), 1));
+        painter.drawRoundedRect(rc, 6, 6);
+
+        if (slot.count <= 0) {
+            painter.setPen(QColor(100, 100, 100));
+            QFont emptyFont;
+            emptyFont.setPixelSize(12);
+            painter.setFont(emptyFont);
+            painter.drawText(rc, Qt::AlignCenter, "Empty");
+            continue;
+        }
+
+        // 角色色块
+        QRect iconRect = rc.adjusted(12, 18, -12, -40);
+        QColor fill = typeFillColor(slot.type, true);
+        painter.setBrush(fill);
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(iconRect, 6, 6);
+
+        // 标签
+        painter.setPen(Qt::white);
+        QFont iconFont;
+        iconFont.setPixelSize(26);
+        iconFont.setBold(true);
+        painter.setFont(iconFont);
+        painter.drawText(iconRect, Qt::AlignCenter, typeLabel(slot.type));
+
+        // 名称 + 数量
+        QFont infoFont;
+        infoFont.setPixelSize(12);
+        infoFont.setBold(true);
+        painter.setFont(infoFont);
+
+        const char* names[] = {"Warrior", "Mage", "Support"};
+        painter.setPen(QColor(200, 200, 220));
+        QRect nameRect = rc.adjusted(8, rc.height() - 32, -8, -8);
+        painter.drawText(nameRect, Qt::AlignHCenter | Qt::AlignTop,
+                         QString("%1  x%2").arg(names[(int)slot.type]).arg(slot.count));
+
+        // 数值
+        QFont statFont;
+        statFont.setPixelSize(10);
+        painter.setFont(statFont);
+        painter.setPen(QColor(160, 160, 180));
+        QString stats;
+        switch (slot.type) {
+            case UnitType::Warrior: stats = "HP:100 ATK:20 Rng:1"; break;
+            case UnitType::Mage:    stats = "HP:50  ATK:10 Rng:4"; break;
+            case UnitType::Support: stats = "HP:80  Heal:20 Rng:1"; break;
+        }
+        painter.drawText(nameRect.adjusted(0, 16, 0, 0), Qt::AlignHCenter | Qt::AlignTop, stats);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 拖拽幽灵
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderDragGhost(QPainter& painter)
+{
+    if (!m_draggedUnit) return;
+
+    QRect unitRect(m_dragCurrentPos.x() - CELL_SIZE / 2,
+                   m_dragCurrentPos.y() - CELL_SIZE / 2,
+                   CELL_SIZE, CELL_SIZE);
+
+    painter.save();
+    painter.setOpacity(0.75);
+
+    bool isHero = dynamic_cast<Hero*>(m_draggedUnit) != nullptr;
+    UnitType t = m_draggedUnit->getType();
+    painter.setBrush(typeFillColor(t, isHero));
+    painter.setPen(QPen(QColor(255, 255, 100), 2));
+    painter.drawRoundedRect(unitRect, 8, 8);
+
+    painter.setPen(Qt::white);
+    QFont f;
+    f.setPixelSize(20);
+    f.setBold(true);
+    painter.setFont(f);
+    painter.drawText(unitRect, Qt::AlignCenter, typeLabel(t));
+
+    painter.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 右侧 UI
+// ═══════════════════════════════════════════════════════════════
+
 void Synera::renderUI(QPainter& painter)
 {
+    int textX = BOARD_OFFSET_X + BOARD_PIXEL_SIZE + 30;
+
+    // 阶段标题
     QFont uiFont;
     uiFont.setPixelSize(16);
     uiFont.setBold(true);
     painter.setFont(uiFont);
 
-    // 回合状态
-    QString turnText;
-    if (m_gameOver)
-        turnText = "GAME OVER";
-    else if (m_isPlayerTurn)
-        turnText = "YOUR TURN - Click a hero to select";
-    else
-        turnText = "ENEMY TURN...";
+    QString status;
+    if (m_gameOver) {
+        status = "GAME OVER";
+        painter.setPen(QColor(255, 150, 50));
+    } else if (m_phase == GamePhase::Placement) {
+        status = "PLACEMENT PHASE";
+        painter.setPen(QColor(255, 200, 100));
+    } else {
+        status = "BATTLE IN PROGRESS";
+        painter.setPen(QColor(255, 120, 80));
+    }
+    painter.drawText(textX, BOARD_OFFSET_Y + 30, status);
 
-    QColor turnColor = m_isPlayerTurn ? QColor(100, 200, 255) : QColor(255, 120, 120);
-    painter.setPen(turnColor);
+    // 开始战斗按钮
+    if (m_phase == GamePhase::Placement) {
+        int btnW = 170, btnH = 40;
+        int btnX = textX, btnY = BOARD_OFFSET_Y + 55;
+        m_startButtonRect = QRect(btnX, btnY, btnW, btnH);
 
-    int textX = BOARD_OFFSET_X + BOARD_PIXEL_SIZE + 30;
-    painter.drawText(textX, BOARD_OFFSET_Y + 30, turnText);
+        bool hasBoardHero = false;
+        for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (u && dynamic_cast<Hero*>(u)) { hasBoardHero = true; break; }
+            }
 
-    // 键位说明
-    QFont helpFont;
-    helpFont.setPixelSize(13);
-    painter.setFont(helpFont);
-    painter.setPen(QColor(160, 160, 180));
+        QColor btnC = hasBoardHero ? QColor(55, 150, 55) : QColor(75, 75, 75);
+        painter.setBrush(btnC);
+        painter.setPen(QPen(hasBoardHero ? QColor(90, 210, 90) : QColor(110, 110, 110), 2));
+        painter.drawRoundedRect(m_startButtonRect, 8, 8);
 
-    int helpY = BOARD_OFFSET_Y + 80;
-    painter.drawText(textX, helpY, "Controls:");
-    painter.drawText(textX, helpY + 24, "- Click hero to select");
-    painter.drawText(textX, helpY + 44, "- Click empty cell to move");
-    painter.drawText(textX, helpY + 64, "- Click adjacent enemy to attack");
-    painter.drawText(textX, helpY + 84, "- Press R to reset");
+        painter.setPen(Qt::white);
+        QFont btnFont;
+        btnFont.setPixelSize(15);
+        btnFont.setBold(true);
+        painter.setFont(btnFont);
+        painter.drawText(m_startButtonRect, Qt::AlignCenter, "Start Battle");
 
-    // 单位列表
-    int listY = helpY + 130;
-    painter.setPen(QColor(200, 200, 220));
-    painter.drawText(textX, listY, "Units:");
+        if (!hasBoardHero) {
+            painter.setPen(QColor(200, 140, 40));
+            QFont hintFont;
+            hintFont.setPixelSize(11);
+            painter.setFont(hintFont);
+            painter.drawText(textX, btnY + btnH + 18, "Drag units to the board");
+        }
+    }
 
-    listY += 24;
+    // 图例
+    int legendY = m_phase == GamePhase::Placement
+        ? m_startButtonRect.bottom() + 55 : BOARD_OFFSET_Y + 75;
+    QFont legFont;
+    legFont.setPixelSize(12);
+    painter.setFont(legFont);
+    painter.setPen(QColor(170, 170, 190));
+    painter.drawText(textX, legendY, "Legend:");
+
+    struct { QString label; QColor color; } legend[] = {
+        {QString::fromUtf8("\342\227\217 Hero Warrior"), typeFillColor(UnitType::Warrior, true)},
+        {QString::fromUtf8("\342\227\217 Hero Mage"),    typeFillColor(UnitType::Mage, true)},
+        {QString::fromUtf8("\342\227\217 Hero Support"), typeFillColor(UnitType::Support, true)},
+        {QString::fromUtf8("\342\227\217 Enemy Warrior"), typeFillColor(UnitType::Warrior, false)},
+        {QString::fromUtf8("\342\227\217 Enemy Mage"),    typeFillColor(UnitType::Mage, false)},
+        {QString::fromUtf8("\342\227\217 Enemy Support"), typeFillColor(UnitType::Support, false)},
+    };
+    for (int i = 0; i < 6; ++i) {
+        painter.setPen(legend[i].color);
+        painter.drawText(textX + 8, legendY + 20 + i * 20, legend[i].label);
+    }
+
+    // 存活单位
+    int unitListY = legendY + 20 + 6 * 20 + 20;
+    painter.setPen(QColor(190, 190, 210));
+    QFont listTitleFont;
+    listTitleFont.setPixelSize(13);
+    listTitleFont.setBold(true);
+    painter.setFont(listTitleFont);
+    painter.drawText(textX, unitListY, "Alive Units:");
+
+    unitListY += 22;
+    QFont listFont;
+    listFont.setPixelSize(11);
+    painter.setFont(listFont);
     for (auto& u : m_units) {
-        // 只显示英雄/敌人（跳过武器对象）
-        Hero* h = dynamic_cast<Hero*>(u.get());
-        Enemy* e = dynamic_cast<Enemy*>(u.get());
-        if (!h && !e) continue; // 跳过武器对象
-        if (u->isDisappeared()) continue;
-
-        painter.setPen(h ? QColor(100, 180, 255) : QColor(255, 120, 120));
+        if (u->isDisappeared() || u->isDead()) continue;
+        bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
+        painter.setPen(isH ? QColor(100, 170, 255) : QColor(240, 100, 100));
         QString info = QString("%1  HP:%2/%3  (%4,%5)")
-                           .arg(QString::fromStdString(u->getName()))
-                           .arg(u->getHp())
-                           .arg(u->getMaxHp())
-                           .arg(u->getPosition().x)
-                           .arg(u->getPosition().y);
-        painter.drawText(textX + 10, listY, info);
-        listY += 22;
+            .arg(QString::fromStdString(u->getName()))
+            .arg(u->getHp()).arg(u->getMaxHp())
+            .arg(u->getPosition().x).arg(u->getPosition().y);
+        painter.drawText(textX + 8, unitListY, info);
+        unitListY += 18;
+    }
+
+    // 帮助
+    int helpY = unitListY + 16;
+    painter.setPen(QColor(140, 140, 160));
+    QFont helpFont;
+    helpFont.setPixelSize(11);
+    painter.setFont(helpFont);
+    if (m_phase == GamePhase::Placement) {
+        painter.drawText(textX, helpY, "Drag from left pool to board");
+        painter.drawText(textX, helpY + 18, "Press R to reset");
+    } else {
+        painter.drawText(textX, helpY, "Auto-combat in progress...");
+        painter.drawText(textX, helpY + 18, "Press R to reset");
     }
 }
 
-// ─── 坐标映射 ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 坐标映射
+// ═══════════════════════════════════════════════════════════════
 
 QRect Synera::cellRect(int x, int y) const
 {
     return QRect(BOARD_OFFSET_X + x * CELL_SIZE,
-                 BOARD_OFFSET_Y + y * CELL_SIZE,
-                 CELL_SIZE, CELL_SIZE);
+                 BOARD_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
 }
 
-Unit* Synera::findUnitAt(int boardX, int boardY) const
+Unit* Synera::findUnitAt(int x, int y) const { return m_board.getUnitAt(x, y); }
+
+Unit* Synera::findUnitAtPixel(const QPoint& p) const
 {
-    return m_board.getUnitAt(boardX, boardY);
+    int gx = (p.x() - BOARD_OFFSET_X) / CELL_SIZE;
+    int gy = (p.y() - BOARD_OFFSET_Y) / CELL_SIZE;
+    if (!m_board.isValidPosition(gx, gy)) return nullptr;
+    return m_board.getUnitAt(gx, gy);
 }
 
-// ─── 鼠标交互 ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 鼠标 — 分发
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::mousePressEvent(QMouseEvent *event)
 {
-    if (m_gameOver || !m_isPlayerTurn)
-        return;
-
+    if (event->button() != Qt::LeftButton) return;
+    if (m_gameOver) return;
     QPoint pos = event->pos();
-    processPlayerClick(pos);
-}
 
-void Synera::processPlayerClick(const QPoint& mousePos)
-{
-    // 计算点击的棋盘坐标
-    int gx = (mousePos.x() - BOARD_OFFSET_X) / CELL_SIZE;
-    int gy = (mousePos.y() - BOARD_OFFSET_Y) / CELL_SIZE;
-
-    if (!m_board.isValidPosition(gx, gy))
-        return;
-
-    Unit* clickedUnit = findUnitAt(gx, gy);
-
-    // 情况1：没有选中任何单位 → 尝试选中我方单位
-    if (!m_selectedUnit) {
-        Hero* hero = dynamic_cast<Hero*>(clickedUnit);
-        if (hero && !hero->isDisappeared()) {
-            m_selectedUnit = hero;
-        }
-        return;
-    }
-
-    // 情况2：点击了自己的另一个英雄 → 切换选中
-    Hero* clickedHero = dynamic_cast<Hero*>(clickedUnit);
-    if (clickedHero && !clickedHero->isDisappeared()) {
-        m_selectedUnit = clickedHero;
-        return;
-    }
-
-    // 情况3：点击了相邻敌方单位 → 攻击
-    Enemy* clickedEnemy = dynamic_cast<Enemy*>(clickedUnit);
-    if (clickedEnemy && !clickedEnemy->isDisappeared()) {
-        if (isAdjacent(m_selectedUnit->getPosition(), clickedEnemy->getPosition())) {
-            m_selectedUnit->attack(*clickedEnemy);
-            if (clickedEnemy->isDead())
-                m_board.removeUnit(clickedEnemy->getPosition().x,
-                                   clickedEnemy->getPosition().y);
-            m_selectedUnit = nullptr;
-            m_isPlayerTurn = false;
-            return;
-        }
-    }
-
-    // 情况4：点击了空格子且在我方半场 → 移动
-    if (!clickedUnit && m_board.isPlayerHalf(gy)) {
-        Position from = m_selectedUnit->getPosition();
-        // 只能移动到相邻格
-        if (isAdjacent(from, Position(gx, gy))) {
-            Hero* hero = dynamic_cast<Hero*>(m_selectedUnit);
-            m_board.removeUnit(from.x, from.y);
-            m_board.placeUnit(hero, gx, gy);
-            m_selectedUnit = nullptr;
-            m_isPlayerTurn = false;
-            return;
-        }
-    }
-
-    // 情况5：点空 → 取消选中
-    if (!clickedUnit) {
-        m_selectedUnit = nullptr;
-        return;
-    }
-}
-
-// ─── 敌方回合 ──────────────────────────────────────────────────
-
-void Synera::processEnemyTurn()
-{
-    // 收集存活的敌方单位
-    std::vector<Enemy*> enemies;
-    for (auto& u : m_units) {
-        Enemy* e = dynamic_cast<Enemy*>(u.get());
-        if (e && !e->isDead() && !e->isDisappeared())
-            enemies.push_back(e);
-    }
-
-    for (Enemy* enemy : enemies) {
-        Position epos = enemy->getPosition();
-        Position nearest = findNearestHero(epos);
-
-        if (nearest.x < 0) continue; // 没有英雄了
-
-        // 相邻 → 攻击
-        if (isAdjacent(epos, nearest)) {
-            Unit* target = findUnitAt(nearest.x, nearest.y);
-            if (target) {
-                enemy->attack(*target);
-                if (target->isDead()) {
-                    m_board.removeUnit(nearest.x, nearest.y);
+    if (m_phase == GamePhase::Placement) {
+        if (m_startButtonRect.contains(pos)) {
+            bool hasBoardHero = false;
+            for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
+                for (int x = 0; x < Board::SIZE; ++x) {
+                    Unit* u = m_board.getUnitAt(x, y);
+                    if (u && dynamic_cast<Hero*>(u)) { hasBoardHero = true; break; }
                 }
+            if (hasBoardHero) startBattle();
+            return;
+        }
+        processDragStart(pos);
+    }
+}
+
+void Synera::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_draggedUnit) {
+        m_dragCurrentPos = event->pos();
+        update();
+    }
+    QMainWindow::mouseMoveEvent(event);
+}
+
+void Synera::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton) return;
+    if (m_draggedUnit) processDrop(event->pos());
+    QMainWindow::mouseReleaseEvent(event);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 拖拽
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::processDragStart(const QPoint& mousePos)
+{
+    // 优先检查左侧备战池
+    int poolIdx = findPoolSlotAt(mousePos);
+    if (poolIdx >= 0 && m_unitPool[poolIdx].count > 0) {
+        Unit* u = createUnitFromPool(m_unitPool[poolIdx].type, true);
+        m_draggedUnit = u;
+        m_dragFromPoolIndex = poolIdx;
+        m_dragCurrentPos = mousePos;
+        m_unitPool[poolIdx].count--;
+        return;
+    }
+
+    // 检查棋盘上的英雄（可拖回池子）
+    Unit* clicked = findUnitAtPixel(mousePos);
+    if (clicked && dynamic_cast<Hero*>(clicked) && !clicked->isDisappeared()) {
+        m_draggedUnit = clicked;
+        m_dragFromPoolIndex = -1;
+        m_dragCurrentPos = mousePos;
+        m_board.removeUnit(clicked->getPosition().x, clicked->getPosition().y);
+    }
+}
+
+void Synera::processDrop(const QPoint& mousePos)
+{
+    if (!m_draggedUnit) return;
+
+    int unitArea = CELL_SIZE * CELL_SIZE;
+    QRect unitRect(mousePos.x() - CELL_SIZE / 2,
+                   mousePos.y() - CELL_SIZE / 2, CELL_SIZE, CELL_SIZE);
+
+    // 放回池子？
+    int poolIdx = findPoolSlotAt(mousePos);
+    if (poolIdx >= 0) {
+        // 返还数量
+        if (m_dragFromPoolIndex >= 0)
+            m_unitPool[m_dragFromPoolIndex].count++;
+        else {
+            // 从棋盘拖回：找到对应类型的 pool slot
+            UnitType t = m_draggedUnit->getType();
+            for (auto& slot : m_unitPool) {
+                if (slot.type == t) { slot.count++; break; }
             }
-            continue;
+            m_draggedUnit->setDisappeared(true); // 标记移除以避免渲染
+        }
+        m_draggedUnit = nullptr;
+        m_dragFromPoolIndex = -1;
+        update();
+        return;
+    }
+
+    // 找棋盘上 >50% 重叠的空格
+    int bestGx = -1, bestGy = -1, bestOverlap = 0;
+    for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            QRect cr = cellRect(x, y);
+            QRect inter = unitRect.intersected(cr);
+            if (inter.isEmpty()) continue;
+            int overlap = inter.width() * inter.height();
+            if (overlap > unitArea / 2 && overlap > bestOverlap && !m_board.isOccupied(x, y)) {
+                bestOverlap = overlap;
+                bestGx = x; bestGy = y;
+            }
+        }
+    }
+
+    if (bestGx >= 0) {
+        if (m_dragFromPoolIndex < 0) {
+            // 从棋盘拖到另一格
+        }
+        m_board.placeUnit(m_draggedUnit, bestGx, bestGy);
+        m_dragFromPoolIndex = -1;
+    } else {
+        // 没合法位置：返还
+        if (m_dragFromPoolIndex >= 0) {
+            m_unitPool[m_dragFromPoolIndex].count++;
+            m_draggedUnit->setDisappeared(true);
+        } else {
+            m_board.placeUnit(m_draggedUnit, m_draggedUnit->getPosition().x,
+                              m_draggedUnit->getPosition().y);
+        }
+    }
+
+    m_draggedUnit = nullptr;
+    m_dragFromPoolIndex = -1;
+    update();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 自动战斗 — 单回合 tick
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::processCombatTick()
+{
+    struct Move { Unit* unit; Position to; };
+    std::vector<Move> moves;
+
+    // 收集棋盘上所有存活单位
+    std::vector<Unit*> alive;
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (u && !u->isDead() && !u->isDisappeared())
+                alive.push_back(u);
         }
 
-        // 否则向最近英雄移动一步
-        int dx = (nearest.x > epos.x) ? 1 : (nearest.x < epos.x) ? -1 : 0;
-        int dy = (nearest.y > epos.y) ? 1 : (nearest.y < epos.y) ? -1 : 0;
-        int nx = epos.x + dx;
-        int ny = epos.y + dy;
+    for (Unit* u : alive) {
+        if (u->isDead() || u->isDisappeared()) continue;
+        Position pos = u->getPosition();
 
-        if (m_board.isValidPosition(nx, ny) && !m_board.isOccupied(nx, ny)) {
-            m_board.removeUnit(epos.x, epos.y);
-            m_board.placeUnit(enemy, nx, ny);
+        if (u->canHeal()) {
+            // ── 辅助逻辑 ──
+            Unit* healTarget = findHealTarget(u);
+            if (healTarget && manhattanDist(pos, healTarget->getPosition()) <= u->getAttackRange()) {
+                healTarget->heal(u->getHealAmount());
+                continue;
+            }
+            if (healTarget) {
+                Position next = moveStepToward(pos, healTarget->getPosition());
+                if (!(next == pos)) moves.push_back({u, next});
+                continue;
+            }
+            // 无受伤队友 → 按战士逻辑移动（但不走出棋盘）
+            Unit* enemy = findNearestEnemyFor(u);
+            if (enemy) {
+                Position next = moveStepToward(pos, enemy->getPosition());
+                if (!(next == pos)) moves.push_back({u, next});
+                // next == pos 时说明移动会出界/被挡 → 不移动
+            }
+        } else {
+            // ── 战士 / 法师 ──
+            Unit* target = findNearestEnemyFor(u);
+            if (!target) continue;
+
+            if (canAttack(u, target)) {
+                u->attack(*target);
+                if (target->isDead())
+                    m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+            } else {
+                Position next = moveStepToward(pos, target->getPosition());
+                if (!(next == pos)) moves.push_back({u, next});
+            }
         }
+    }
+
+    // 执行移动
+    for (auto& m : moves) {
+        if (m_board.isOccupied(m.to.x, m.to.y)) continue; // 目标格已被占
+        Position old = m.unit->getPosition();
+        m_board.removeUnit(old.x, old.y);
+        m_board.placeUnit(m.unit, m.to.x, m.to.y);
     }
 
     checkWinCondition();
-    m_isPlayerTurn = true;
 }
 
-Position Synera::findNearestHero(const Position& from) const
+// ═══════════════════════════════════════════════════════════════
+// 索敌（自动战斗）
+// ═══════════════════════════════════════════════════════════════
+
+Unit* Synera::findNearestEnemyFor(Unit* unit) const
 {
-    Position best(-1, -1);
-    double bestDist = 1e9;
-    for (auto& u : m_units) {
-        Hero* h = dynamic_cast<Hero*>(u.get());
-        if (!h || h->isDead() || h->isDisappeared())
-            continue;
-        Position hp = h->getPosition();
-        double dist = std::sqrt((hp.x - from.x) * (hp.x - from.x) +
-                                (hp.y - from.y) * (hp.y - from.y));
-        if (dist < bestDist) {
-            bestDist = dist;
-            best = hp;
+    bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
+    Unit* best = nullptr;
+    int bestDist = 999;
+
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u == unit || u->isDead() || u->isDisappeared()) continue;
+            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
+            if (uIsHero == isHero) continue; // 同阵营
+
+            int d = manhattanDist(unit->getPosition(), u->getPosition());
+            if (d < bestDist) { bestDist = d; best = u; }
         }
-    }
     return best;
 }
 
-bool Synera::isAdjacent(const Position& a, const Position& b) const
+Unit* Synera::findHealTarget(Unit* support) const
 {
-    int dx = std::abs(a.x - b.x);
-    int dy = std::abs(a.y - b.y);
-    return (dx + dy) == 1;
+    bool isHero = dynamic_cast<Hero*>(support) != nullptr;
+    Unit* best = nullptr;
+    int bestDist = 999;
+    UnitType bestType = UnitType::Support;
+    int bestXDist = 999;
+
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u == support || u->isDead() || u->isDisappeared()) continue;
+            if (u->getHp() >= u->getMaxHp()) continue; // 没受伤
+            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
+            if (uIsHero != isHero) continue;
+
+            int d = manhattanDist(support->getPosition(), u->getPosition());
+            int xd = std::abs(support->getPosition().x - u->getPosition().x);
+
+            bool better = false;
+            if (d < bestDist) better = true;
+            else if (d == bestDist) {
+                int tr = (u->getType() == UnitType::Warrior) ? 0 :
+                         (u->getType() == UnitType::Mage) ? 1 : 2;
+                int br = (bestType == UnitType::Warrior) ? 0 :
+                         (bestType == UnitType::Mage) ? 1 : 2;
+                if (tr < br) better = true;
+                else if (tr == br && xd < bestXDist) better = true;
+            }
+
+            if (better) {
+                best = u; bestDist = d; bestType = u->getType(); bestXDist = xd;
+            }
+        }
+    return best;
 }
 
-// ─── 胜负判定 ──────────────────────────────────────────────────
+Position Synera::moveStepToward(const Position& from, const Position& to) const
+{
+    int dx = (to.x > from.x) ? 1 : (to.x < from.x) ? -1 : 0;
+    int dy = (to.y > from.y) ? 1 : (to.y < from.y) ? -1 : 0;
+
+    if (dx != 0) {
+        Position next(from.x + dx, from.y);
+        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
+            return next;
+    }
+    if (dy != 0) {
+        Position next(from.x, from.y + dy);
+        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
+            return next;
+    }
+    return from;
+}
+
+bool Synera::canAttack(Unit* attacker, Unit* target) const
+{
+    return manhattanDist(attacker->getPosition(), target->getPosition())
+           <= attacker->getAttackRange();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 胜负判定
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::checkWinCondition()
 {
-    bool hasHero = false;
-    bool hasEnemy = false;
+    bool hasHeroNonSupport = false, hasEnemyNonSupport = false;
+    bool hasHeroAny = false, hasEnemyAny = false;
+
     for (auto& u : m_units) {
         if (u->isDisappeared() || u->isDead()) continue;
-        if (dynamic_cast<Hero*>(u.get()))  hasHero = true;
-        if (dynamic_cast<Enemy*>(u.get())) hasEnemy = true;
+        bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
+        if (isH) {
+            hasHeroAny = true;
+            if (u->getType() != UnitType::Support) hasHeroNonSupport = true;
+        } else {
+            hasEnemyAny = true;
+            if (u->getType() != UnitType::Support) hasEnemyNonSupport = true;
+        }
     }
-    if (!hasHero || !hasEnemy)
-        m_gameOver = true;
+
+    // 一方全员阵亡，或一方只剩辅助 → 判负
+    if (!hasHeroAny || !hasHeroNonSupport) m_gameOver = true;
+    if (!hasEnemyAny || !hasEnemyNonSupport) m_gameOver = true;
 }
 
-// ─── 按键事件 ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 键盘
+// ═══════════════════════════════════════════════════════════════
 
 void Synera::keyPressEvent(QKeyEvent *event)
 {

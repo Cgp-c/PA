@@ -415,9 +415,6 @@ CMakeFiles/Synera.dir/main.cpp.obj: C:\Users\cgp83\Desktop\PA\main.cpp \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/QMenuBar \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmenubar.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qmenu.h \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/QPushButton \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/qpushbutton.h \
- C:/Qt/6.11.0/mingw_64/include/QtWidgets/qabstractbutton.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/QStatusBar \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/qstatusbar.h \
  C:/Qt/6.11.0/mingw_64/include/QtWidgets/QWidget \
