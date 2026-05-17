@@ -1,0 +1,5 @@
+C:/Users/cgp83/Desktop/PA/build/CMakeFiles/Synera.dir
+C:/Users/cgp83/Desktop/PA/build/CMakeFiles/edit_cache.dir
+C:/Users/cgp83/Desktop/PA/build/CMakeFiles/rebuild_cache.dir
+C:/Users/cgp83/Desktop/PA/build/CMakeFiles/Synera_autogen_timestamp_deps.dir
+C:/Users/cgp83/Desktop/PA/build/CMakeFiles/Synera_autogen.dir
