@@ -13,6 +13,7 @@ public:
     WarriorHero(int x = 0, int y = 0);
     int getAttackRange() const override { return 1; }
     int getAttackDamage() const override { return 20; }
+    void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 class MageHero : public Hero {
@@ -20,6 +21,7 @@ public:
     MageHero(int x = 0, int y = 0);
     int getAttackRange() const override { return 4; }
     int getAttackDamage() const override { return 10; }
+    void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 class SupportHero : public Hero {
@@ -29,6 +31,7 @@ public:
     int getAttackDamage() const override { return 0; }
     int getHealAmount() const override { return 20; }
     bool canHeal() const override { return true; }
+    void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 #endif // HERO_H

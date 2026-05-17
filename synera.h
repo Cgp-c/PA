@@ -56,6 +56,7 @@ private:
 
     // 自动战斗
     void processCombatTick();
+    void processBurningTick(std::vector<Unit*>& alive);
     Unit* findNearestEnemyFor(Unit* unit) const;
     Unit* findHealTarget(Unit* support) const;
     Position moveStepToward(const Position& from, const Position& to) const;

@@ -221,9 +221,9 @@
 
 ---
 
-## 当前代码架构（v0.1 — Starter 框架）
+## 当前代码架构（v0.3 — 拖拽布阵 + 全自动战斗 + 法力技能）
 
-基于 **Qt6 + C++17 + MinGW**，采用 **事件驱动游戏循环**（QTimer @ ~60fps），在 `Synera` 主窗口内完成 8×8 方形棋盘渲染、鼠标点选交互与回合制战斗。
+基于 **Qt6 + C++17 + MinGW**，采用 **事件驱动游戏循环**（QTimer @ ~60fps），实现拖拽布阵与全自动战斗。
 
 ### 文件树
 
@@ -232,20 +232,22 @@ PA/
 ├─ CMakeLists.txt
 ├─ README.md
 ├─ synera.ui                  # Qt Designer UI 布局
-├─ main.cpp                   # 入口 + 游戏主循环框架说明
-├─ synera.h / synera.cpp      # 主窗口、棋盘渲染、回合逻辑
-├─ unit.h / unit.cpp          # 单位基类
-├─ hero.h / hero.cpp          # 我方英雄（派生类）
-├─ enemy.h / enemy.cpp        # 敌方单位（派生类）
+├─ main.cpp                   # 入口
+├─ synera.h / synera.cpp      # 主窗口、渲染、游戏循环、自动战斗
+├─ unit.h / unit.cpp          # 单位抽象基类 + UnitType 枚举 + 坐标/距离工具
+├─ hero.h / hero.cpp          # Hero 基类 + WarriorHero / MageHero / SupportHero
+├─ enemy.h / enemy.cpp        # Enemy 基类 + WarriorEnemy / MageEnemy / SupportEnemy
 ├─ weapon.h / weapon.cpp      # 装备类
 └─ board.h / board.cpp        # 8×8 棋盘数据
 ```
 
 ---
 
-### 1. `Position` 结构体（`unit.h`）
+### 更新一：拖拽放置（>50% 面积判定） + 左侧备战池
 
-坐标抽象，表示棋盘上的格子位置。
+**需求**：玩家从左侧 Unit Pool 拖拽单位到棋盘，放下时若单位矩形与目标格重叠面积 >50% 则吸附，否则弹回。
+
+#### `Position` 结构体（`unit.h`）
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
@@ -253,239 +255,280 @@ PA/
 | `y` | `int` | 行坐标 (0–7) |
 | `operator==` | `bool` | 比较两个位置是否相同 |
 
----
+#### `manhattanDist(a, b)` 全局函数（`unit.h`）
 
-### 2. `Weapon` — 装备类（`weapon.h/cpp`）
-
-描述一件可穿戴装备，决定单位的攻击力加成。
-
-| 成员 / 方法 | 类型 | 说明 |
-|-------------|------|------|
-| `m_name` | `std::string` | 装备名称（如 "Iron Sword"） |
-| `m_damage` | `int` | 攻击力加成数值 |
-| `Weapon(name, damage)` | 构造函数 | 创建指定名称与攻击力的装备 |
-| `getName()` | `std::string` | 获取装备名称 |
-| `getDamage()` | `int` | 获取攻击力加成 |
-
-**接口**：`Unit` 通过 `setEquipment(Weapon*)` / `getEquipment()` 穿戴 / 查询装备，`attack()` 时读取装备攻击力。
-
----
-
-### 3. `Unit` — 单位抽象基类（`unit.h/cpp`）
-
-所有战斗实体的公共基类，定义属性与纯虚接口，由 `Hero` / `Enemy` 继承。
-
-| 成员 / 方法 | 类型 | 说明 |
-|-------------|------|------|
-| `m_name` | `std::string` | 单位名称 |
-| `m_hp` | `int` | 当前生命值 |
-| `m_maxHp` | `int` | 最大生命值 |
-| `m_pos` | `Position` | 当前棋盘位置 |
-| `m_equipment` | `Weapon*` | 穿戴的装备（可为 `nullptr`） |
-| `m_disappeared` | `bool` | 是否已消失（死亡后移除出场） |
-| `Unit(name, hp, maxHp, x, y)` | 构造函数 | 初始化所有属性，装备置空，未消失 |
-| `attack(target)` | `virtual void = 0` | **纯虚函数** — 攻击目标单位，子类分别实现 |
-| `isDead()` | `bool` | HP ≤ 0 即死亡 |
-| `isDisappeared()` | `bool` | 是否已从场上移除 |
-| `takeDamage(damage)` | `void` | 扣减 HP（不低于 0） |
-| `setDisappeared(flag)` | `void` | 标记消失状态 |
-| `getName()` / `getHp()` / `getMaxHp()` | getter | 属性访问 |
-| `getPosition()` | `Position` | 获取当前坐标 |
-| `getEquipment()` | `Weapon*` | 获取装备指针 |
-| `setPosition(x, y)` | `void` | 更新坐标 |
-| `setEquipment(weapon)` | `void` | 穿戴装备 |
-| `setHp(hp)` | `void` | 设置生命值 |
-
-**多态接口**：`attack()` 在 `Hero` 中基于装备伤害计算（默认 10），在 `Enemy` 中同样基于装备（默认 8），攻击后若目标死亡则自动调用 `setDisappeared(true)`。
-
----
-
-### 4. `Hero` — 我方单位（`hero.h/cpp`，继承 `Unit`）
-
-| 成员 | 说明 |
+| 签名 | 说明 |
 |------|------|
-| `Hero(name, hp, maxHp, x, y)` | 构造函数，委托 `Unit` |
-| `attack(target)` | 以装备伤害（或默认 10）攻击目标，目标死亡则消失 |
+| `int manhattanDist(const Position&, const Position&)` | 曼哈顿距离 = \|dx\| + \|dy\|，用于索敌和移动判定 |
 
----
+#### `PoolSlot` 结构体（`synera.h`）
 
-### 5. `Enemy` — 敌方单位（`enemy.h/cpp`，继承 `Unit`）
+备战池中的一条记录，表示一种可放置的单位类型及其剩余数量。
 
-| 成员 | 说明 |
-|------|------|
-| `Enemy(name, hp, maxHp, x, y)` | 构造函数，委托 `Unit` |
-| `attack(target)` | 以装备伤害（或默认 8）攻击目标，目标死亡则消失 |
-
----
-
-### 6. `Board` — 8×8 方形棋盘（`board.h/cpp`）
-
-纯数据层，管理格子占用与合法性检查。
-
-| 成员 / 方法 | 说明 |
-|-------------|------|
-| `SIZE = 8` | `static constexpr`，棋盘边长 |
-| `m_grid[8][8]` | `Unit*` 二维数组，`nullptr` 表示空格 |
-| `Board()` | 初始化全空 |
-| `placeUnit(unit, x, y)` | 若位置合法且为空则放置，更新 unit 的坐标 |
-| `getUnitAt(x, y)` | 返回格子上的单位指针（`nullptr` 表示空） |
-| `isOccupied(x, y)` | 该格是否已有单位 |
-| `removeUnit(x, y)` | 清空指定格 |
-| `isValidPosition(x, y)` | 坐标是否在 [0, SIZE) 范围内 |
-| `isPlayerHalf(y)` | 是否在我方半场（y ≥ SIZE/2，即 row 4–7） |
-| `isEnemyHalf(y)` | 是否在敌方半场（y < SIZE/2，即 row 0–3） |
-| `clear()` | 清空全部格子 |
-
-**接口角色**：`Synera` 在 `placeUnit / removeUnit` 时仅通过 `Board` 操作；`Board` 不持有单位所有权（`Unit*` 为裸指针，生命周期由 `Synera::m_units` 管理）。
-
----
-
-### 7. `Synera` — 游戏主窗口（`synera.h/cpp`）
-
-继承 `QMainWindow`，是全部游戏逻辑的集中入口。**同时承担 Controller（回合调度 / 规则校验）和 View（paintEvent 渲染）职责。**
-
-#### 7.1 成员变量
-
-| 变量 | 类型 | 说明 |
+| 成员 | 类型 | 说明 |
 |------|------|------|
-| `ui` | `Ui::MainWindow*` | Qt Designer UI 指针 |
-| `m_gameTimer` | `QTimer*` | 16ms 定时器，驱动 `gameLoop()` |
-| `m_frameClock` | `QElapsedTimer` | 帧计时，计算 deltaTime |
-| `m_board` | `Board` | 棋盘数据 |
-| `m_units` | `vector<unique_ptr<Unit>>` | 所有单位的生命周期持有者 |
-| `m_weapons` | `vector<unique_ptr<Weapon>>` | 所有装备的生命周期持有者 |
-| `m_selectedUnit` | `Unit*` | 当前选中的单位（裸指针，不持有） |
-| `m_isPlayerTurn` | `bool` | 是否玩家回合 |
-| `m_gameOver` | `bool` | 游戏是否结束 |
+| `type` | `UnitType` | 单位角色（Warrior / Mage / Support） |
+| `count` | `int` | 该类型剩余可放置数量 |
 
-#### 7.2 常量
+#### 拖拽相关方法（`synera.cpp`）
+
+| 方法 | 说明 |
+|------|------|
+| `generateUnitPool()` | 随机生成 Unit Pool：战士 2~3、法师 1~2、辅助 1~2 |
+| `createUnitFromPool(type, isHero)` | 按类型实例化对应的 WarriorHero/MageHero/SupportHero |
+| `processDragStart(mousePos)` | 按下时：若命中 Pool 且有库存 → 创建单位开始拖拽并扣减数量；若命中棋盘上英雄 → 从棋盘拿起 |
+| `processDrop(mousePos)` | 释放时：放回 Pool → 返还数量/移除单位；放到棋盘 → 遍历我方半场，计算 `unitRect.intersected(cellRect)`，重叠面积 > `CELL_SIZE² / 2` 且最高者吸附 |
+
+#### 左侧备战池渲染
+
+| 方法 | 说明 |
+|------|------|
+| `renderBenchPool(painter)` | 在 `(10, 80)` 绘制 Pool 列：每个槽位 170×100 px，显示角色色块（战/法/辅）、名称、剩余数量、属性摘要 |
+| `poolSlotRect(index)` | Pool 槽位 → QRect |
+| `findPoolSlotAt(pixel)` | 像素坐标 → Pool 槽位索引，-1 表示未命中 |
+
+#### 拖拽幽灵
+
+| 方法 | 说明 |
+|------|------|
+| `renderDragGhost(painter)` | 以 75% 不透明度在鼠标位置绘制被拖拽单位的色块 + 角色标签 |
+
+---
+
+### 更新二：三职业类层次 + 全自动战斗
+
+**需求**：引入战士/法师/辅助三种职业，每种职业在 Hero 和 Enemy 下各有一个子类。战斗开始后完全自动，每 ~0.3s 一个 tick，所有单位同时索敌、移动、攻击或治疗。
+
+#### `UnitType` 枚举（`unit.h`）
+
+```cpp
+enum class UnitType { Warrior, Mage, Support };
+```
+
+#### `Unit` 基类新增成员（`unit.h/cpp`）
+
+| 成员 / 方法 | 类型 | 说明 |
+|-------------|------|------|
+| `m_type` | `UnitType` | 职业类型 |
+| `getType()` | `UnitType` | 获取职业 |
+| `getAttackRange()` | `virtual int = 0` | 攻击距离（战士=1, 法师=4, 辅助=1） |
+| `getAttackDamage()` | `virtual int = 0` | 攻击伤害（战士=20, 法师=10, 辅助=0） |
+| `getHealAmount()` | `virtual int` | 治疗量（仅辅助=20, 其余=0） |
+| `canHeal()` | `virtual bool` | 是否可治疗（仅辅助=true） |
+| `heal(amount)` | `void` | 回复 HP，不超过 m_maxHp（为装备提高生命值上限预留接口） |
+| `setMaxHp(maxHp)` | `void` | 设置最大生命值（装备接口预留） |
+| `attack(target)` | `virtual void` | 改为非纯虚：基础伤害 = `getAttackDamage() + 装备加成` |
+
+#### 职业子类（`hero.h/cpp` + `enemy.h/cpp`）
+
+```
+Unit
+├── Hero
+│   ├── WarriorHero   "A-Warrior"   HP:100  ATK:20  Range:1
+│   ├── MageHero      "A-Mage"      HP:50   ATK:10  Range:4
+│   └── SupportHero   "A-Support"   HP:80   Heal:20 Range:1  canHeal=true
+└── Enemy
+    ├── WarriorEnemy  "E-Warrior"   HP:100  ATK:20  Range:1
+    ├── MageEnemy     "E-Mage"      HP:50   ATK:10  Range:4
+    └── SupportEnemy  "E-Support"   HP:80   Heal:20 Range:1  canHeal=true
+```
+
+每个子类仅重写 `getAttackRange()` / `getAttackDamage()` / `getHealAmount()` / `canHeal()`。攻击逻辑统一在 `Unit::attack()` 中实现。
+
+#### 占位符渲染（`synera.cpp`）
+
+| 函数 | 说明 |
+|------|------|
+| `typeFillColor(type, isHero)` | 战士=橙、法师=紫、辅助=绿；敌方颜色略深 |
+| `typeLabel(type)` | 返回中文标签："战"/"法"/"辅" |
+
+`renderUnits()` 中每个单位被绘制为带角色标签的色块 + 名称 + HP 条。
+
+#### 自动战斗系统（`synera.cpp`）
+
+**常量**
 
 | 常量 | 值 | 说明 |
 |------|-----|------|
-| `CELL_SIZE` | 80 | 每格像素大小 |
-| `BOARD_OFFSET_X` | 200 | 棋盘左上角 X 偏移 |
-| `BOARD_OFFSET_Y` | 80 | 棋盘左上角 Y 偏移 |
-| `BOARD_PIXEL_SIZE` | 640 | 棋盘总像素边长 (80×8) |
+| `TICK_INTERVAL` | 18 | 战斗 tick 间隔帧数（18×16ms ≈ 0.29s） |
+| `POOL_X / POOL_Y / POOL_SLOT_H / POOL_WIDTH` | 10 / 80 / 100 / 170 | Pool 面板布局 |
 
-#### 7.3 核心方法
-
-**初始化**
+**战斗 tick 方法**
 
 | 方法 | 说明 |
 |------|------|
-| `initGame()` | 重置全部状态：清空棋盘、创建单位、重置回合标记 |
-| `initUnits()` | 创建 3 个 Hero + 3 个 Enemy + 4 件 Weapon，放置到 `m_board` 上，所有权移入 `m_units` / `m_weapons` |
+| `processCombatTick()` | 每 TICK_INTERVAL 帧调用一次：遍历棋盘上所有存活单位，计算行动（攻击/治疗/移动），执行移动，判定胜负 |
 
-**游戏主循环**
+**行动逻辑（`processCombatTick` 内部）**
+
+| 职业 | 行动 |
+|------|------|
+| 战士 | `findNearestEnemyFor()` 找最近敌人 → 若相邻则 `attack()`，否则 `moveStepToward()` 移动 1 步 |
+| 法师 | 同上，但攻击距离 ≤4 即可攻击（`canAttack()` 用 `manhattanDist` 判定） |
+| 辅助 | `findHealTarget()` 找最近受伤队友 → 相邻则 `heal()`；若无人受伤则按战士逻辑移动（出界则不移动）；若找不到敌人也不移动 |
+
+**索敌与治疗选择**
 
 | 方法 | 说明 |
 |------|------|
-| `gameLoop()` [slot] | QTimer 回调：计算 deltaTime → 非玩家回合则调用 `processEnemyTurn()` → `update()` 触发重绘 |
+| `findNearestEnemyFor(unit)` | 遍历棋盘找不同阵营的最近单位（曼哈顿距离） |
+| `findHealTarget(support)` | 遍历棋盘找同阵营 HP < maxHP 的最近单位。距离相同时：优先战士 > 法师 > 辅助；角色相同则优先横坐标更近 |
+| `canAttack(attacker, target)` | `manhattanDist ≤ attacker.getAttackRange()` |
 
-**渲染（paintEvent 调用链）**
-
-| 方法 | 说明 |
-|------|------|
-| `paintEvent(event)` | Qt 绘制入口，依次调用三个 render 函数 |
-| `renderBoard(painter)` | 绘制 8×8 方形网格：半场底色（玩家蓝灰 / 敌方暗红）、选中高亮绿色、坐标标注 |
-| `renderUnits(painter)` | 遍历棋盘绘制单位：圆角矩形 + 名字 + HP 条（颜色渐变）+ HP 数值 + 装备名 |
-| `renderUI(painter)` | 右侧面板：回合状态提示、操作说明、存活单位列表及属性 |
-
-**鼠标交互**
+**移动**
 
 | 方法 | 说明 |
 |------|------|
-| `mousePressEvent(event)` | Qt 鼠标事件入口，仅在玩家回合且未结束时响应 |
-| `processPlayerClick(mousePos)` | 将像素坐标转棋盘坐标，分 5 种情况：① 选中我方英雄 ② 切换选中 ③ 攻击相邻敌人 ④ 移动至相邻空格（仅限我方半场） ⑤ 点空取消选中 |
+| `moveStepToward(from, to)` | 单步移动：优先 x 方向，若被占/出界则尝试 y 方向，均不可行则原地不动。返回目标 Position（可能与 from 相同） |
 
-**敌方 AI**
-
-| 方法 | 说明 |
-|------|------|
-| `processEnemyTurn()` | 收集存活 Enemy，每个依次：若与英雄相邻则攻击，否则向最近英雄移动 1 步（曼哈顿方向） |
-| `findNearestHero(from)` | 欧氏距离最近且未死亡/消失的 Hero 位置；无存活 Hero 返回 `(-1,-1)` |
-
-**规则辅助**
+**胜负判定**
 
 | 方法 | 说明 |
 |------|------|
-| `isAdjacent(a, b)` | 曼哈顿距离 = 1（上下左右相邻） |
-| `checkWinCondition()` | 检查是否一方全灭 → `m_gameOver = true` |
-| `cellRect(x, y)` | 棋盘格 → 像素矩形（QRect） |
-| `findUnitAt(x, y)` | 查询棋盘上的单位（委托 Board） |
+| `checkWinCondition()` | 遍历 m_units：若一方全员阵亡 **或** 一方只剩辅助（无战士/法师）→ `m_gameOver = true` |
 
-**键盘**
-
-| 方法 | 说明 |
-|------|------|
-| `keyPressEvent(event)` | 按 R 键重置游戏（调用 `initGame()`） |
-
----
-
-### 8. `main.cpp` — 游戏入口与主循环框架
-
-| 职责 | 说明 |
-|------|------|
-| 创建 `QApplication` | Qt 事件系统基础 |
-| 创建 `Synera` 主窗口 | 在其中初始化棋盘、单位、定时器 |
-| `mainWin.show()` | 显示窗口 |
-| `app.exec()` | 进入 Qt 事件循环 —— 此后由 `QTimer::timeout` 信号驱动帧更新 |
-
-**游戏主循环链路**：
+#### 游戏主循环
 
 ```
 QTimer::timeout (16ms)
   → Synera::gameLoop()
-    → processEnemyTurn()   [非玩家回合时]
+    → if (Battle && !gameOver) m_combatTickCounter++
+      → if (>= TICK_INTERVAL) processCombatTick()
     → update()
       → paintEvent()
-        → renderBoard() + renderUnits() + renderUI()
+        → renderBoard() + renderUnits() + renderBenchPool() + renderDragGhost() + renderUI()
 ```
+
+#### `Synera` 成员变量（当前完整）
+
+| 变量 | 类型 | 说明 |
+|------|------|------|
+| `m_board` | `Board` | 8×8 棋盘数据 |
+| `m_units` | `vector<unique_ptr<Unit>>` | 所有单位生命周期持有者 |
+| `m_weapons` | `vector<unique_ptr<Weapon>>` | 所有装备生命周期持有者 |
+| `m_unitPool` | `vector<PoolSlot>` | 左侧备战池（类型 + 数量） |
+| `m_phase` | `GamePhase` | Placement / Battle |
+| `m_gameOver` | `bool` | 战斗是否结束 |
+| `m_combatTickCounter` | `int` | 战斗帧计数器 |
+| `m_draggedUnit` | `Unit*` | 当前拖拽单位（裸指针） |
+| `m_dragCurrentPos` | `QPoint` | 拖拽中鼠标位置 |
+| `m_dragFromPoolIndex` | `int` | 从 Pool 哪一槽拖出（-1 = 从棋盘） |
+
+#### `Synera` 常量
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `CELL_SIZE` | 80 | 每格像素 |
+| `BOARD_OFFSET_X/Y` | 200 / 80 | 棋盘左上角 |
+| `POOL_X/Y` | 10 / 80 | Pool 面板左上角 |
+| `POOL_SLOT_H` | 100 | 每个 Pool 槽高度 |
+| `POOL_WIDTH` | 170 | Pool 面板宽度 |
+| `TICK_INTERVAL` | 18 | 战斗 tick 帧间隔 |
 
 ---
 
-### 9. 全局变量
+### 更新三：法力值与技能系统
 
-**本项目无全局变量。** 所有游戏状态封装在 `Synera` 类的成员中：
-- 棋盘数据 → `Synera::m_board`
-- 单位生命周期 → `Synera::m_units`
-- 装备生命周期 → `Synera::m_weapons`
-- 回合状态 → `Synera::m_isPlayerTurn`, `Synera::m_gameOver`
-- 选中状态 → `Synera::m_selectedUnit`
+**需求**：每次攻击或治疗积攒 1 点法力值，满法力（5 点）时自动释放职业技能并清空法力。为每个单位添加燃烧 debuff 系统。
+
+#### `Unit` 基类新增法力/技能/燃烧成员（`unit.h/cpp`）
+
+| 成员 / 方法 | 类型 / 签名 | 说明 |
+|-------------|-------------|------|
+| `MAX_MANA` | `static constexpr int` | 最大法力值 = 5 |
+| `m_mana` | `int` | 当前法力值 |
+| `m_burning` | `bool` | 是否处于燃烧状态 |
+| `m_burningTurns` | `int` | 燃烧剩余回合数 |
+| `getMana()` | `int` | 获取当前法力值 |
+| `getMaxMana()` | `int` | 获取最大法力值（返回 `MAX_MANA`） |
+| `gainMana()` | `void` | 法力值 +1，不超过 `MAX_MANA` |
+| `resetMana()` | `void` | 法力值归零 |
+| `useSkill(board, allUnits)` | `virtual void = 0` | 纯虚函数：释放职业技能 |
+| `isBurning()` | `bool` | 是否燃烧中 |
+| `getBurningTurns()` | `int` | 获取燃烧剩余回合 |
+| `applyBurning(turns)` | `void` | 施加燃烧 debuff（覆盖旧值） |
+| `tickBurning()` | `void` | 燃烧结算：扣除 10 HP，减少 1 回合；回合归零则熄灭 |
+
+#### 职业技能实现（`hero.cpp` / `enemy.cpp`）
+
+| 职业 | 技能 | 实现细节 |
+|------|------|---------|
+| 战士 | 对最近敌方单位造成 **80** 固定伤害 | 遍历 `allUnits`，用 `dynamic_cast` 过滤敌对阵营，曼哈顿距离最近者受到 80 伤害；若击杀则调用 `board.removeUnit()` |
+| 法师 | 周围 **3×3** 范围内所有敌方单位施加燃烧（**10 伤害/回合 × 4 回合**） | 遍历 `allUnits`，\|dx\| ≤ 1 且 \|dy\| ≤ 1 的敌对单位调用 `applyBurning(4)`；燃烧独立于施法者生命周期 |
+| 辅助 | 全场生命值绝对值最低的 **2** 个单位各回复 **30** HP | 按 `getHp()` 升序排列，跳过死亡/消失的单位，治疗前 2 个；无距离限制 |
+
+#### 战斗 tick 中的技能判定（`synera.cpp` — `processCombatTick`）
+
+```
+for each alive unit:
+    if unit.mana >= MAX_MANA:
+        unit.useSkill(board, alive)   // 释放技能
+        unit.resetMana()              // 法力归零
+        continue                      // 本回合不执行普通行动
+    // 否则执行普通攻击/治疗，成功后 gainMana()
+```
+
+另外每 tick 开始时，先对所有存活单位调用 `processBurningTick(alive)` 结算燃烧伤害。燃烧在单位死亡后不再触发，但 debuff 在单位存活期间独立于施法者。
+
+#### 法力值显示（`synera.cpp` — `renderUnits`）
+
+每个单位 HP 条上方绘制 5 个圆形法力指示器：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| 圆的半径 | 4 px | 小圆点 |
+| 间距 | 10 px | 圆心之间 |
+| 填充圆 | `QColor(240, 240, 240)` | 表示已攒法力 |
+| 空心圆 | `QColor(60, 60, 60)` | 表示未攒法力 |
+| 位置 | HP 条上方 3 px | 水平居中于单位矩形 |
+
+#### 新增战斗辅助方法
+
+| 方法 | 说明 |
+|------|------|
+| `processBurningTick(alive)` | 遍历存活单位，对燃烧单位调用 `tickBurning()`；若单位因此死亡则调用 `board.removeUnit()` |
 
 ---
 
-### 10. 类间关系（UML 概要）
+### 类间关系（UML 概要 v0.3）
 
 ```
-Unit (abstract)  ◄──── Weapon*  (装备，聚合)
-  ▲
-  ├── Hero    (我方，attack 默认伤害 10)
-  └── Enemy   (敌方，attack 默认伤害 8)
+Unit (abstract)
+├── m_type: UnitType {Warrior, Mage, Support}
+├── m_mana: int (0–MAX_MANA), MAX_MANA = 5
+├── m_burning: bool, m_burningTurns: int
+├── getAttackRange() / getAttackDamage() / getHealAmount() / canHeal()
+├── gainMana() / resetMana() / getMana() / getMaxMana()
+├── useSkill(board, allUnits) = 0       [纯虚：技能释放]
+├── applyBurning(turns) / tickBurning() / isBurning()
+├── heal(amount)    [不超过 m_maxHp，预留装备接口]
+├── attack(target)  [基础伤害 + 装备加成]
+│
+├── Hero ──────────── WarriorHero / MageHero / SupportHero
+└── Enemy ─────────── WarriorEnemy / MageEnemy / SupportEnemy
 
-Board (8×8)  ◄──── Unit*[8][8]  (棋盘持有单位裸指针)
-  ▲
-  │ 使用
-  │
+Board (8×8)  ◄──── Unit*[8][8]
+
 Synera (QMainWindow)
-  ├── 持有 Board
-  ├── 持有 vector<unique_ptr<Unit>>   (生命周期管理)
-  ├── 持有 vector<unique_ptr<Weapon>> (生命周期管理)
-  ├── 持有 QTimer                     (游戏循环驱动)
-  └── 实现 paintEvent / mousePressEvent / keyPressEvent
+├── Board + vector<unique_ptr<Unit>> + vector<PoolSlot>
+├── 渲染: renderBoard / renderUnits / renderBenchPool / renderDragGhost / renderUI
+├── 拖拽: processDragStart / processDrop (>50% 面积判定)
+├── 战斗: processCombatTick / processBurningTick / findNearestEnemyFor / findHealTarget / moveStepToward
+└── 键盘: R 重置
 ```
 
 ---
 
-### 11. 与 PA 阶段一 Checklist 的对应
+### 与 PA 阶段一 Checklist 的对应
 
 | PA 要求 | 当前实现 |
 |---------|---------|
-| 8×8 棋盘 + 半场 | `Board` 类 + `isPlayerHalf()` / `isEnemyHalf()` |
-| 单位基类 Unit（HP 等） | `Unit` 抽象基类：HP / maxHp / name / position / equipment |
-| 我方/敌方通过 owner 区分 | 通过派生类 `Hero` / `Enemy` 区分（`dynamic_cast` 判定） |
-| 鼠标拖拽 | 改为 **点选式交互**（click-to-select, click-to-act），更简洁稳定 |
-| GUI 展示棋盘、血条等 | `renderBoard()` / `renderUnits()` / `renderUI()` 完整渲染 |
-| 回合制战斗 | 玩家行动 → 敌方 AI 自动响应 → 胜负判定 |
-
-> **关于交互方式的说明**：当前采用点选而非拖拽。拖拽实现需搭配 `mouseMoveEvent` 与实时碰撞检测，对 Starter 框架来说点选更直观且易调试，可在后续阶段切换为拖拽。
+| 8×8 棋盘 + 半场 | `Board` + `isPlayerHalf()` / `isEnemyHalf()` |
+| 单位基类 Unit（HP/ATK 等） | `Unit` 基类 + `UnitType` 枚举 + `getAttackRange()` / `getAttackDamage()` 等纯虚接口 |
+| 我方/敌方通过 owner 区分 | 派生类 `Hero`（A-前缀） / `Enemy`（E-前缀）区分，`dynamic_cast` 判定阵营 |
+| 备战区与拖拽 | 左侧 Pool 面板 + 拖拽放置（>50% 面积吸附）+ 可拖回 Pool |
+| 自动战斗 | `processCombatTick()` 全自动索敌/移动/攻击/治疗，~0.3s/tick |
+| 战士/法师/辅助多态 | 6 个子类各重写 `getAttackRange()` / `getAttackDamage()` / `canHeal()` |
+| 法力值与技能系统 | `gainMana()` / `resetMana()` 回蓝，`useSkill()` 纯虚多态技能，战士 80 伤害 / 法师 3×3 燃烧 / 辅助双目标治疗 30 |
+| 燃烧 debuff | `applyBurning()` / `tickBurning()`，独立于施法者生命周期，10 dmg/tick × 4 回合 |
+| GUI 展示棋盘、血条、法力点 | `renderBoard()` / `renderUnits()`（色块+标签+HP条+5法力点）/ `renderUI()`（图例+存活列表） |

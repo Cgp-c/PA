@@ -2,6 +2,7 @@
 #define UNIT_H
 
 #include <string>
+#include <vector>
 #include "weapon.h"
 
 struct Position {
@@ -19,8 +20,12 @@ inline int manhattanDist(const Position& a, const Position& b) {
     return std::abs(a.x - b.x) + std::abs(a.y - b.y);
 }
 
+class Board;
+
 class Unit {
 public:
+    static constexpr int MAX_MANA = 5;
+
     Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type);
     virtual ~Unit() = default;
 
@@ -32,6 +37,21 @@ public:
     void takeDamage(int damage);
     void setDisappeared(bool disappeared);
     void heal(int amount);
+
+    // 法力值
+    int getMana() const;
+    int getMaxMana() const;
+    void gainMana();
+    void resetMana();
+
+    // 技能（纯虚，子类各自实现）
+    virtual void useSkill(Board& board, std::vector<Unit*>& allUnits) = 0;
+
+    // 燃烧状态
+    bool isBurning() const;
+    int getBurningTurns() const;
+    void applyBurning(int turns);
+    void tickBurning();
 
     std::string getName() const;
     int getHp() const;
@@ -58,6 +78,9 @@ protected:
     Weapon* m_equipment;
     bool m_disappeared;
     UnitType m_type;
+    int m_mana;
+    bool m_burning;
+    int m_burningTurns;
 };
 
 #endif // UNIT_H

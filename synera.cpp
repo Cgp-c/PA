@@ -265,6 +265,20 @@ void Synera::renderUnits(QPainter& painter)
             painter.drawText(barBg, Qt::AlignCenter,
                              QString("%1/%2").arg(unit->getHp()).arg(unit->getMaxHp()));
 
+            // 法力值圆点
+            int dotR = 4;
+            int dotSpacing = 10;
+            int dotY = barBg.top() - dotR - 3;
+            int totalDotW = Unit::MAX_MANA * dotSpacing - (dotSpacing - dotR * 2);
+            int dotStartX = ur.center().x() - totalDotW / 2;
+            for (int iDot = 0; iDot < Unit::MAX_MANA; ++iDot) {
+                int cx = dotStartX + iDot * dotSpacing;
+                bool filled = (iDot < unit->getMana());
+                painter.setBrush(filled ? QColor(240, 240, 240) : QColor(60, 60, 60));
+                painter.setPen(QPen(QColor(150, 150, 150), 1));
+                painter.drawEllipse(QPoint(cx, dotY), dotR, dotR);
+            }
+
             // 装备
             if (unit->getEquipment()) {
                 painter.setPen(QColor(255, 210, 0));
@@ -497,9 +511,10 @@ void Synera::renderUI(QPainter& painter)
         if (u->isDisappeared() || u->isDead()) continue;
         bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
         painter.setPen(isH ? QColor(100, 170, 255) : QColor(240, 100, 100));
-        QString info = QString("%1  HP:%2/%3  (%4,%5)")
+        QString info = QString("%1  HP:%2/%3  MP:%4/%5  (%6,%7)")
             .arg(QString::fromStdString(u->getName()))
             .arg(u->getHp()).arg(u->getMaxHp())
+            .arg(u->getMana()).arg(u->getMaxMana())
             .arg(u->getPosition().x).arg(u->getPosition().y);
         painter.drawText(textX + 8, unitListY, info);
         unitListY += 18;
@@ -677,6 +692,17 @@ void Synera::processDrop(const QPoint& mousePos)
 // 自动战斗 — 单回合 tick
 // ═══════════════════════════════════════════════════════════════
 
+void Synera::processBurningTick(std::vector<Unit*>& alive)
+{
+    for (Unit* u : alive) {
+        if (u->isBurning()) {
+            u->tickBurning();
+            if (u->isDead())
+                m_board.removeUnit(u->getPosition().x, u->getPosition().y);
+        }
+    }
+}
+
 void Synera::processCombatTick()
 {
     struct Move { Unit* unit; Position to; };
@@ -691,15 +717,26 @@ void Synera::processCombatTick()
                 alive.push_back(u);
         }
 
+    // 先处理燃烧伤害
+    processBurningTick(alive);
+
     for (Unit* u : alive) {
         if (u->isDead() || u->isDisappeared()) continue;
         Position pos = u->getPosition();
+
+        // ── 法力值满 → 释放技能 ──
+        if (u->getMana() >= Unit::MAX_MANA) {
+            u->useSkill(m_board, alive);
+            u->resetMana();
+            continue;
+        }
 
         if (u->canHeal()) {
             // ── 辅助逻辑 ──
             Unit* healTarget = findHealTarget(u);
             if (healTarget && manhattanDist(pos, healTarget->getPosition()) <= u->getAttackRange()) {
                 healTarget->heal(u->getHealAmount());
+                u->gainMana();
                 continue;
             }
             if (healTarget) {
@@ -707,12 +744,11 @@ void Synera::processCombatTick()
                 if (!(next == pos)) moves.push_back({u, next});
                 continue;
             }
-            // 无受伤队友 → 按战士逻辑移动（但不走出棋盘）
+            // 无受伤队友 → 按战士逻辑移动
             Unit* enemy = findNearestEnemyFor(u);
             if (enemy) {
                 Position next = moveStepToward(pos, enemy->getPosition());
                 if (!(next == pos)) moves.push_back({u, next});
-                // next == pos 时说明移动会出界/被挡 → 不移动
             }
         } else {
             // ── 战士 / 法师 ──
@@ -721,6 +757,7 @@ void Synera::processCombatTick()
 
             if (canAttack(u, target)) {
                 u->attack(*target);
+                u->gainMana();
                 if (target->isDead())
                     m_board.removeUnit(target->getPosition().x, target->getPosition().y);
             } else {
@@ -732,7 +769,7 @@ void Synera::processCombatTick()
 
     // 执行移动
     for (auto& m : moves) {
-        if (m_board.isOccupied(m.to.x, m.to.y)) continue; // 目标格已被占
+        if (m_board.isOccupied(m.to.x, m.to.y)) continue;
         Position old = m.unit->getPosition();
         m_board.removeUnit(old.x, old.y);
         m_board.placeUnit(m.unit, m.to.x, m.to.y);

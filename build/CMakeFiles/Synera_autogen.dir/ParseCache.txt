@@ -397,9 +397,9 @@ C:/Users/cgp83/Desktop/PA/synera.h
  mdp:C:/mingw64/x86_64-w64-mingw32/include/wchar.h
  uic:ui_synera.h
 C:/Users/cgp83/Desktop/PA/weapon.h
-C:/Users/cgp83/Desktop/PA/board.cpp
 C:/Users/cgp83/Desktop/PA/enemy.cpp
 C:/Users/cgp83/Desktop/PA/unit.cpp
+C:/Users/cgp83/Desktop/PA/board.cpp
 C:/Users/cgp83/Desktop/PA/hero.cpp
 C:/Users/cgp83/Desktop/PA/synera.cpp
  uic:ui_synera.h

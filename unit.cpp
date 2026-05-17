@@ -8,6 +8,9 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_equipment(nullptr)
     , m_disappeared(false)
     , m_type(type)
+    , m_mana(0)
+    , m_burning(false)
+    , m_burningTurns(0)
 {
 }
 
@@ -37,6 +40,38 @@ void Unit::heal(int amount)
     m_hp += amount;
     if (m_hp > m_maxHp) m_hp = m_maxHp;
 }
+
+// ─── 法力值 ──────────────────────────────────────────────────
+
+int Unit::getMana() const { return m_mana; }
+int Unit::getMaxMana() const { return MAX_MANA; }
+void Unit::gainMana()
+{
+    if (m_mana < MAX_MANA) ++m_mana;
+}
+void Unit::resetMana() { m_mana = 0; }
+
+// ─── 燃烧 ────────────────────────────────────────────────────
+
+bool Unit::isBurning() const { return m_burning; }
+int Unit::getBurningTurns() const { return m_burningTurns; }
+
+void Unit::applyBurning(int turns)
+{
+    m_burning = true;
+    m_burningTurns = turns;
+}
+
+void Unit::tickBurning()
+{
+    if (!m_burning) return;
+    takeDamage(10);
+    --m_burningTurns;
+    if (m_burningTurns <= 0)
+        m_burning = false;
+}
+
+// ─── getter / setter ─────────────────────────────────────────
 
 std::string Unit::getName() const { return m_name; }
 int Unit::getHp() const { return m_hp; }
