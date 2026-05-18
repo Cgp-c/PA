@@ -11,7 +11,7 @@
 #include "unit.h"
 #include "weapon.h"
 
-enum class GamePhase { Placement, Battle };
+enum class GamePhase { Preparation, Battle };
 
 struct PoolSlot {
     UnitType type;
@@ -38,34 +38,41 @@ private slots:
 
 private:
     void initGame();
-    void generateUnitPool();
+    void initLevel();
     void startBattle();
+    void endLevel(bool playerWon);
     Unit* createUnitFromPool(UnitType type, bool isHero);
 
     void renderBoard(QPainter& painter);
     void renderUnits(QPainter& painter);
-    void renderBenchPool(QPainter& painter);
+    void renderShop(QPainter& painter);
+    void renderRecycleSlots(QPainter& painter);
     void renderDragGhost(QPainter& painter);
     void renderUI(QPainter& painter);
 
     QRect cellRect(int x, int y) const;
-    QRect poolSlotRect(int index) const;
+    QRect shopBuyRect(int index) const;
+    QRect recycleSlotRect(int row, int col) const;
 
     void processDragStart(const QPoint& mousePos);
     void processDrop(const QPoint& mousePos);
 
-    // 自动战斗
-    void processCombatTick();
+    // 自动战斗（每帧调用）
+    void processCombatFrame();
     void processBurningTick(std::vector<Unit*>& alive);
     Unit* findNearestEnemyFor(Unit* unit) const;
     Unit* findHealTarget(Unit* support) const;
     Position moveStepToward(const Position& from, const Position& to) const;
     bool canAttack(Unit* attacker, Unit* target) const;
-    void checkWinCondition();
+    void checkLevelEnd();
 
     Unit* findUnitAt(int boardX, int boardY) const;
     Unit* findUnitAtPixel(const QPoint& pixel) const;
-    int   findPoolSlotAt(const QPoint& pixel) const;
+    int   findShopSlotAt(const QPoint& pixel) const;
+    int   findRecycleSlotAt(const QPoint& pixel) const;
+
+    int enemyGoldValue(UnitType t) const;
+    int heroCost(UnitType t) const;
 
     Ui::MainWindow *ui;
     QTimer *m_gameTimer;
@@ -74,27 +81,49 @@ private:
     Board m_board;
     std::vector<std::unique_ptr<Unit>> m_units;
     std::vector<std::unique_ptr<Weapon>> m_weapons;
-    std::vector<PoolSlot> m_unitPool;
+    std::vector<PoolSlot> m_shop;          // 商店库存（可购买数量）
 
     GamePhase m_phase;
     bool m_gameOver;
-    int m_combatTickCounter;
+    bool m_playerVictory;
+    bool m_showLevelLoss;                     // 关卡失败提示
+    int m_frameCounter;                     // 全局帧计数
 
+    // 关卡
+    int m_currentLevel;
+    static constexpr int MAX_LEVEL = 3;
+
+    // 玩家
+    int m_playerHp;
+    int m_gold;
+    int m_pendingGold;                      // 本关战斗中累积金币
+
+    // 回收槽：2行 × 4类型，存指向 m_units 的裸指针
+    std::vector<Unit*> m_recycleSlots;      // 8个
+
+    // 拖拽
     Unit* m_draggedUnit;
     QPoint m_dragCurrentPos;
-    int m_dragFromPoolIndex; // -1 = from board
+    int m_dragFromShopIndex;                // -1=board, -2=recycle, >=0=shop index
+    int m_dragFromRecycleIndex;             // recycle slot index (0-7)
 
+    // 按钮区域
     QRect m_startButtonRect;
+    std::vector<QRect> m_buyButtonRects;    // 商店购买按钮
 
-    static constexpr int CELL_SIZE = 80;
-    static constexpr int BOARD_OFFSET_X = 200;
-    static constexpr int BOARD_OFFSET_Y = 80;
+    static constexpr int CELL_SIZE = 64;
+    static constexpr int BOARD_OFFSET_X = 160;
+    static constexpr int BOARD_OFFSET_Y = 64;
     static constexpr int BOARD_PIXEL_SIZE = CELL_SIZE * Board::SIZE;
-    static constexpr int POOL_X = 10;
-    static constexpr int POOL_Y = 80;
-    static constexpr int POOL_SLOT_H = 100;
-    static constexpr int POOL_WIDTH = 170;
-    static constexpr int TICK_INTERVAL = 18; // ~0.3s per tick
+    static constexpr int SHOP_X = 10;
+    static constexpr int SHOP_Y = 64;
+    static constexpr int SHOP_SLOT_H = 88;
+    static constexpr int SHOP_WIDTH = 136;
+    static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 20;
+    static constexpr int RECYCLE_SLOT_W = 56;
+    static constexpr int RECYCLE_SLOT_H = 48;
+    static constexpr int RECYCLE_SPACING = 8;
+    static constexpr int BURNING_INTERVAL = 18;
 };
 
 #endif // SYNERA_H

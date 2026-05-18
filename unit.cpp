@@ -1,6 +1,7 @@
 #include "unit.h"
 
-Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type)
+Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
+           int moveSpeed, int attackSpeed, int startMana)
     : m_name(name)
     , m_hp(hp)
     , m_maxHp(maxHp)
@@ -8,9 +9,13 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_equipment(nullptr)
     , m_disappeared(false)
     , m_type(type)
-    , m_mana(0)
+    , m_mana(startMana)
     , m_burning(false)
     , m_burningTurns(0)
+    , m_moveSpeed(moveSpeed)
+    , m_attackSpeed(attackSpeed)
+    , m_moveTimer(0)
+    , m_attackTimer(0)
 {
 }
 
@@ -84,3 +89,17 @@ void Unit::setPosition(int x, int y) { m_pos = Position(x, y); }
 void Unit::setEquipment(Weapon* weapon) { m_equipment = weapon; }
 void Unit::setHp(int hp) { m_hp = hp; }
 void Unit::setMaxHp(int maxHp) { m_maxHp = maxHp; }
+
+int Unit::getMoveSpeed() const { return m_moveSpeed; }
+int Unit::getAttackSpeed() const { return m_attackSpeed; }
+int Unit::getMoveTimer() const { return m_moveTimer; }
+int Unit::getAttackTimer() const { return m_attackTimer; }
+
+void Unit::incrementTimers()
+{
+    ++m_moveTimer;
+    ++m_attackTimer;
+}
+
+void Unit::resetMoveTimer() { m_moveTimer = 0; }
+void Unit::resetAttackTimer() { m_attackTimer = 0; }

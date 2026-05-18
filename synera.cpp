@@ -18,15 +18,23 @@
 Synera::Synera(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , m_phase(GamePhase::Placement)
+    , m_phase(GamePhase::Preparation)
     , m_gameOver(false)
-    , m_combatTickCounter(0)
+    , m_playerVictory(false)
+    , m_showLevelLoss(false)
+    , m_frameCounter(0)
+    , m_currentLevel(1)
+    , m_playerHp(100)
+    , m_gold(280)
+    , m_pendingGold(0)
+    , m_recycleSlots(8, nullptr)
     , m_draggedUnit(nullptr)
-    , m_dragFromPoolIndex(-1)
+    , m_dragFromShopIndex(-1)
+    , m_dragFromRecycleIndex(-1)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
-    resize(1200, 800);
+    resize(960, 780);
     setMouseTracking(true);
 
     initGame();
@@ -47,72 +55,244 @@ void Synera::initGame()
 {
     m_units.clear();
     m_weapons.clear();
-    m_unitPool.clear();
+    m_shop.clear();
+    m_board.clear();
+    for (auto& p : m_recycleSlots) p = nullptr;
+    m_draggedUnit = nullptr;
+    m_dragFromShopIndex = -1;
+    m_dragFromRecycleIndex = -1;
+    m_phase = GamePhase::Preparation;
+    m_gameOver = false;
+    m_playerVictory = false;
+    m_showLevelLoss = false;
+    m_frameCounter = 0;
+    m_currentLevel = 1;
+    m_playerHp = 100;
+    m_gold = 280;
+    m_pendingGold = 0;
+
+    // 初始化商店：4 种类型，初始库存 0
+    m_shop.clear();
+    m_shop.push_back({UnitType::Warrior, 0});
+    m_shop.push_back({UnitType::Mage, 0});
+    m_shop.push_back({UnitType::Support, 0});
+    m_shop.push_back({UnitType::Assassin, 0});
+
+    m_buyButtonRects.clear();
+}
+
+void Synera::initLevel()
+{
+    // 清理已死亡/消失的单位
+    m_units.erase(
+        std::remove_if(m_units.begin(), m_units.end(),
+            [](const std::unique_ptr<Unit>& u) { return u->isDisappeared() || u->isDead(); }),
+        m_units.end());
+
     m_board.clear();
     m_draggedUnit = nullptr;
-    m_dragFromPoolIndex = -1;
-    m_phase = GamePhase::Placement;
-    m_gameOver = false;
-    m_combatTickCounter = 0;
+    m_dragFromShopIndex = -1;
+    m_dragFromRecycleIndex = -1;
+    m_phase = GamePhase::Preparation;
+    m_frameCounter = 0;
+    m_pendingGold = 0;
 
-    generateUnitPool();
+    // 回收槽中已死亡的清理
+    for (auto& p : m_recycleSlots) {
+        if (p && (p->isDead() || p->isDisappeared()))
+            p = nullptr;
+    }
 }
 
-void Synera::generateUnitPool()
+// ═══════════════════════════════════════════════════════════════
+// 金币 / 价格
+// ═══════════════════════════════════════════════════════════════
+
+int Synera::heroCost(UnitType t) const
 {
-    m_unitPool.clear();
-    // 随机生成：战士2~3个，法师1~2个，辅助1~2个
-    int wc = 2 + std::rand() % 2; // 2-3
-    int mc = 1 + std::rand() % 2; // 1-2
-    int sc = 1 + std::rand() % 2; // 1-2
-    m_unitPool.push_back({UnitType::Warrior, wc});
-    m_unitPool.push_back({UnitType::Mage,    mc});
-    m_unitPool.push_back({UnitType::Support, sc});
+    switch (t) {
+        case UnitType::Warrior:  return 100;
+        case UnitType::Mage:     return 80;
+        case UnitType::Support:  return 50;
+        case UnitType::Assassin: return 60;
+    }
+    return 0;
 }
+
+int Synera::enemyGoldValue(UnitType t) const
+{
+    switch (t) {
+        case UnitType::Warrior:  return 80;
+        case UnitType::Mage:     return 60;
+        case UnitType::Support:  return 30;
+        case UnitType::Assassin: return 30;
+    }
+    return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 创建单位
+// ═══════════════════════════════════════════════════════════════
 
 Unit* Synera::createUnitFromPool(UnitType type, bool isHero)
 {
     if (isHero) {
         switch (type) {
-            case UnitType::Warrior: { auto u = std::make_unique<WarriorHero>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Mage:    { auto u = std::make_unique<MageHero>();    Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Support: { auto u = std::make_unique<SupportHero>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Warrior:  { auto u = std::make_unique<WarriorHero>();  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Mage:     { auto u = std::make_unique<MageHero>();     Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Support:  { auto u = std::make_unique<SupportHero>();  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Assassin: { auto u = std::make_unique<AssassinHero>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
         }
     } else {
         switch (type) {
-            case UnitType::Warrior: { auto u = std::make_unique<WarriorEnemy>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Mage:    { auto u = std::make_unique<MageEnemy>();    Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Support: { auto u = std::make_unique<SupportEnemy>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Warrior:  { auto u = std::make_unique<WarriorEnemy>();  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Mage:     { auto u = std::make_unique<MageEnemy>();     Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Support:  { auto u = std::make_unique<SupportEnemy>();  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Assassin: { auto u = std::make_unique<AssassinEnemy>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
         }
     }
     return nullptr;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 开始战斗
+// ═══════════════════════════════════════════════════════════════
+
 void Synera::startBattle()
 {
-    // 敌方随机生成 1战士 + 1法师 + 1辅助
-    UnitType enemyTypes[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support};
-    for (int i = 0; i < 3; ++i) {
-        Unit* eu = createUnitFromPool(enemyTypes[i], false);
-        // 在敌方半场 (row 0-3) 随机空位放置
-        bool placed = false;
-        for (int attempt = 0; attempt < 100; ++attempt) {
-            int ex = std::rand() % Board::SIZE;
-            int ey = std::rand() % (Board::SIZE / 2);
-            if (m_board.placeUnit(eu, ex, ey)) { placed = true; break; }
-        }
-        if (!placed) {
-            for (int y = 0; y < Board::SIZE / 2 && !placed; ++y)
-                for (int x = 0; x < Board::SIZE && !placed; ++x)
-                    if (m_board.placeUnit(eu, x, y)) placed = true;
+    // 每关敌方配置
+    struct { UnitType type; int count; } enemyConfig[4] = {
+        {UnitType::Warrior,  0},
+        {UnitType::Mage,     0},
+        {UnitType::Support,  0},
+        {UnitType::Assassin, 0},
+    };
+    // 按关卡设定数量
+    for (int i = 0; i < 4; ++i)
+        enemyConfig[i].count = m_currentLevel; // 每关 N 个
+
+    for (int i = 0; i < 4; ++i) {
+        for (int c = 0; c < enemyConfig[i].count; ++c) {
+            Unit* eu = createUnitFromPool(enemyConfig[i].type, false);
+            bool placed = false;
+            for (int attempt = 0; attempt < 100; ++attempt) {
+                int ex = std::rand() % Board::SIZE;
+                int ey = std::rand() % (Board::SIZE / 2);
+                if (m_board.placeUnit(eu, ex, ey)) { placed = true; break; }
+            }
+            if (!placed) {
+                for (int y = 0; y < Board::SIZE / 2 && !placed; ++y)
+                    for (int x = 0; x < Board::SIZE && !placed; ++x)
+                        if (m_board.placeUnit(eu, x, y)) placed = true;
+            }
         }
     }
 
+    // 清空商店池中未使用的单位（标记消失）
+    for (auto& slot : m_shop) slot.count = 0;
+
+    m_showLevelLoss = false;
     m_phase = GamePhase::Battle;
+    m_frameCounter = 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 游戏主循环
+// 关卡结束
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::endLevel(bool playerWon)
+{
+    if (playerWon) {
+        // 回收场上存活英雄 — 扫描整个棋盘（英雄可能移动到敌方半场）
+        for (int y = 0; y < Board::SIZE; ++y) {
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
+                if (u->isDead() || u->isDisappeared()) continue;
+
+                // 治疗 20，清空技能条
+                u->heal(20);
+                u->resetMana();
+                u->resetMoveTimer();
+                u->resetAttackTimer();
+
+                // 放入对应类型的回收槽（优先第一行）
+                int typeIdx = static_cast<int>(u->getType());
+                bool placed = false;
+                for (int row = 0; row < 2; ++row) {
+                    int slotIdx = row * 4 + typeIdx;
+                    if (m_recycleSlots[slotIdx] == nullptr) {
+                        m_recycleSlots[slotIdx] = u;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (placed)
+                    m_board.removeUnit(x, y);
+                else
+                    u->setDisappeared(true);
+            }
+        }
+        m_gold += m_pendingGold;
+        m_gold += 100; // 基础通关金币
+    } else {
+        // 失败：统计整个棋盘上剩余敌方（敌人可能移动到玩家半场）
+        int remaining = 0;
+        for (int y = 0; y < Board::SIZE; ++y) {
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (u && !u->isDead() && !u->isDisappeared()
+                    && dynamic_cast<Enemy*>(u) != nullptr)
+                    ++remaining;
+            }
+        }
+        m_playerHp -= remaining * 20;
+        if (m_playerHp < 0) m_playerHp = 0;
+        m_gold += m_pendingGold / 2;
+
+        // 清除场上所有敌方角色
+        for (int y = 0; y < Board::SIZE; ++y)
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (u && dynamic_cast<Enemy*>(u) != nullptr)
+                    u->setDisappeared(true);
+            }
+
+        // 场上英雄全部消失
+        for (int y = 0; y < Board::SIZE; ++y)
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (u && dynamic_cast<Hero*>(u) != nullptr)
+                    u->setDisappeared(true);
+            }
+
+        // 若还有血量进入下一关，仍获得基础金币
+        if (m_playerHp > 0)
+            m_gold += 100;
+
+        m_showLevelLoss = true;
+    }
+
+    m_pendingGold = 0;
+
+    if (m_playerHp <= 0) {
+        m_gameOver = true;
+        m_playerVictory = false;
+        return;
+    }
+
+    if (playerWon && m_currentLevel >= MAX_LEVEL) {
+        m_gameOver = true;
+        m_playerVictory = true;
+        return;
+    }
+
+    ++m_currentLevel;
+    initLevel();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 游戏主循环 — 每帧运行
 // ═══════════════════════════════════════════════════════════════
 
 void Synera::gameLoop()
@@ -122,11 +302,8 @@ void Synera::gameLoop()
     Q_UNUSED(dt);
 
     if (m_phase == GamePhase::Battle && !m_gameOver) {
-        ++m_combatTickCounter;
-        if (m_combatTickCounter >= TICK_INTERVAL) {
-            m_combatTickCounter = 0;
-            processCombatTick();
-        }
+        ++m_frameCounter;
+        processCombatFrame();
     }
 
     update();
@@ -144,8 +321,9 @@ void Synera::paintEvent(QPaintEvent *event)
     painter.fillRect(rect(), QColor(25, 25, 35));
 
     renderBoard(painter);
+    renderRecycleSlots(painter);
     renderUnits(painter);
-    renderBenchPool(painter);
+    renderShop(painter);
     renderDragGhost(painter);
     renderUI(painter);
 }
@@ -164,7 +342,7 @@ void Synera::renderBoard(QPainter& painter)
                 ? QColor(40, 55, 80) : QColor(75, 38, 38);
 
             // 拖拽悬停高亮
-            if (m_draggedUnit && m_phase == GamePhase::Placement && m_board.isPlayerHalf(y)) {
+            if (m_draggedUnit && m_phase == GamePhase::Preparation && m_board.isPlayerHalf(y)) {
                 QRect unitRect(m_dragCurrentPos.x() - CELL_SIZE / 2,
                                m_dragCurrentPos.y() - CELL_SIZE / 2,
                                CELL_SIZE, CELL_SIZE);
@@ -188,9 +366,10 @@ void Synera::renderBoard(QPainter& painter)
 static QColor typeFillColor(UnitType t, bool isHero)
 {
     switch (t) {
-        case UnitType::Warrior: return isHero ? QColor(210, 100, 30)  : QColor(180, 70, 20);
-        case UnitType::Mage:    return isHero ? QColor(130, 80, 210)  : QColor(100, 55, 170);
-        case UnitType::Support: return isHero ? QColor(55, 170, 100)  : QColor(40, 140, 70);
+        case UnitType::Warrior:  return isHero ? QColor(210, 100, 30)  : QColor(180, 70, 20);
+        case UnitType::Mage:     return isHero ? QColor(130, 80, 210)  : QColor(100, 55, 170);
+        case UnitType::Support:  return isHero ? QColor(55, 170, 100)  : QColor(40, 140, 70);
+        case UnitType::Assassin: return isHero ? QColor(200, 180, 40)  : QColor(160, 140, 20);
     }
     return QColor(128, 128, 128);
 }
@@ -198,9 +377,10 @@ static QColor typeFillColor(UnitType t, bool isHero)
 static QString typeLabel(UnitType t)
 {
     switch (t) {
-        case UnitType::Warrior: return QString::fromUtf8("\346\210\230"); // 战
-        case UnitType::Mage:    return QString::fromUtf8("\346\263\225"); // 法
-        case UnitType::Support: return QString::fromUtf8("\350\276\205"); // 辅
+        case UnitType::Warrior:  return QString::fromUtf8("\346\210\230"); // 战
+        case UnitType::Mage:     return QString::fromUtf8("\346\263\225"); // 法
+        case UnitType::Support:  return QString::fromUtf8("\350\276\205"); // 辅
+        case UnitType::Assassin: return QString::fromUtf8("\345\210\272"); // 刺
     }
     return "?";
 }
@@ -226,7 +406,7 @@ void Synera::renderUnits(QPainter& painter)
             painter.setPen(QPen(border, 1));
             painter.drawRoundedRect(ur, 6, 6);
 
-            // 角色标签（战/法/辅）
+            // 角色标签
             painter.setPen(Qt::white);
             QFont typeFont;
             typeFont.setPixelSize(22);
@@ -293,53 +473,47 @@ void Synera::renderUnits(QPainter& painter)
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 左侧备战池
+// 商店 (左侧)
 // ═══════════════════════════════════════════════════════════════
 
-QRect Synera::poolSlotRect(int index) const
+QRect Synera::shopBuyRect(int index) const
 {
-    return QRect(POOL_X, POOL_Y + index * (POOL_SLOT_H + 10), POOL_WIDTH, POOL_SLOT_H);
+    QRect base(SHOP_X, SHOP_Y + index * (SHOP_SLOT_H + 8), SHOP_WIDTH, SHOP_SLOT_H);
+    return QRect(base.right() - 65, base.top() + 50, 60, 28);
 }
 
-int Synera::findPoolSlotAt(const QPoint& pixel) const
+int Synera::findShopSlotAt(const QPoint& pixel) const
 {
-    for (int i = 0; i < (int)m_unitPool.size(); ++i)
-        if (poolSlotRect(i).contains(pixel)) return i;
+    for (int i = 0; i < (int)m_shop.size(); ++i)
+        if (QRect(SHOP_X, SHOP_Y + i * (SHOP_SLOT_H + 8), SHOP_WIDTH, SHOP_SLOT_H).contains(pixel))
+            return i;
     return -1;
 }
 
-void Synera::renderBenchPool(QPainter& painter)
+void Synera::renderShop(QPainter& painter)
 {
-    if (m_phase != GamePhase::Placement) return;
+    if (m_phase != GamePhase::Preparation) return;
 
-    // 标题
     QFont titleFont;
     titleFont.setPixelSize(13);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(180, 180, 200));
-    painter.drawText(POOL_X, POOL_Y - 12, "Unit Pool");
+    painter.drawText(SHOP_X, SHOP_Y - 12, "Shop");
 
-    for (int i = 0; i < (int)m_unitPool.size(); ++i) {
-        QRect rc = poolSlotRect(i);
-        const PoolSlot& slot = m_unitPool[i];
+    m_buyButtonRects.clear();
+
+    for (int i = 0; i < (int)m_shop.size(); ++i) {
+        QRect rc(SHOP_X, SHOP_Y + i * (SHOP_SLOT_H + 8), SHOP_WIDTH, SHOP_SLOT_H);
+        const PoolSlot& slot = m_shop[i];
 
         // 底色
         painter.setBrush(QColor(40, 40, 50));
         painter.setPen(QPen(slot.count > 0 ? QColor(110, 110, 130) : QColor(60, 60, 70), 1));
         painter.drawRoundedRect(rc, 6, 6);
 
-        if (slot.count <= 0) {
-            painter.setPen(QColor(100, 100, 100));
-            QFont emptyFont;
-            emptyFont.setPixelSize(12);
-            painter.setFont(emptyFont);
-            painter.drawText(rc, Qt::AlignCenter, "Empty");
-            continue;
-        }
-
         // 角色色块
-        QRect iconRect = rc.adjusted(12, 18, -12, -40);
+        QRect iconRect = rc.adjusted(8, 10, -8, -45);
         QColor fill = typeFillColor(slot.type, true);
         painter.setBrush(fill);
         painter.setPen(Qt::NoPen);
@@ -348,35 +522,129 @@ void Synera::renderBenchPool(QPainter& painter)
         // 标签
         painter.setPen(Qt::white);
         QFont iconFont;
-        iconFont.setPixelSize(26);
+        iconFont.setPixelSize(24);
         iconFont.setBold(true);
         painter.setFont(iconFont);
         painter.drawText(iconRect, Qt::AlignCenter, typeLabel(slot.type));
 
-        // 名称 + 数量
+        // 名称 + 库存
+        const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
         QFont infoFont;
-        infoFont.setPixelSize(12);
+        infoFont.setPixelSize(11);
         infoFont.setBold(true);
         painter.setFont(infoFont);
-
-        const char* names[] = {"Warrior", "Mage", "Support"};
         painter.setPen(QColor(200, 200, 220));
-        QRect nameRect = rc.adjusted(8, rc.height() - 32, -8, -8);
+        QRect nameRect = rc.adjusted(8, rc.height() - 42, -8, -8);
         painter.drawText(nameRect, Qt::AlignHCenter | Qt::AlignTop,
                          QString("%1  x%2").arg(names[(int)slot.type]).arg(slot.count));
 
-        // 数值
+        // 价格 + 数值
         QFont statFont;
-        statFont.setPixelSize(10);
+        statFont.setPixelSize(9);
         painter.setFont(statFont);
         painter.setPen(QColor(160, 160, 180));
         QString stats;
         switch (slot.type) {
-            case UnitType::Warrior: stats = "HP:100 ATK:20 Rng:1"; break;
-            case UnitType::Mage:    stats = "HP:50  ATK:10 Rng:4"; break;
-            case UnitType::Support: stats = "HP:80  Heal:20 Rng:1"; break;
+            case UnitType::Warrior:  stats = "HP:100 ATK:20 Spd:30/60"; break;
+            case UnitType::Mage:     stats = "HP:50  ATK:10 Spd:30/60"; break;
+            case UnitType::Support:  stats = "HP:80  Heal:20 Spd:30/60"; break;
+            case UnitType::Assassin: stats = "HP:40  ATK:50 Spd:30/40"; break;
         }
-        painter.drawText(nameRect.adjusted(0, 16, 0, 0), Qt::AlignHCenter | Qt::AlignTop, stats);
+        painter.drawText(nameRect.adjusted(0, 14, 0, 0), Qt::AlignHCenter | Qt::AlignTop, stats);
+
+        // 购买按钮
+        int cost = heroCost(slot.type);
+        QRect btnRect = shopBuyRect(i);
+        m_buyButtonRects.push_back(btnRect);
+
+        bool canBuy = (m_gold >= cost);
+        painter.setBrush(canBuy ? QColor(55, 130, 55) : QColor(65, 65, 65));
+        painter.setPen(QPen(canBuy ? QColor(90, 200, 90) : QColor(100, 100, 100), 1));
+        painter.drawRoundedRect(btnRect, 4, 4);
+
+        painter.setPen(Qt::white);
+        QFont btnFont;
+        btnFont.setPixelSize(11);
+        btnFont.setBold(true);
+        painter.setFont(btnFont);
+        painter.drawText(btnRect, Qt::AlignCenter, QString("$%1").arg(cost));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 回收槽 (棋盘下方)
+// ═══════════════════════════════════════════════════════════════
+
+QRect Synera::recycleSlotRect(int row, int col) const
+{
+    int totalW = 4 * RECYCLE_SLOT_W + 3 * RECYCLE_SPACING;
+    int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
+    return QRect(startX + col * (RECYCLE_SLOT_W + RECYCLE_SPACING),
+                 RECYCLE_Y + row * (RECYCLE_SLOT_H + 8),
+                 RECYCLE_SLOT_W, RECYCLE_SLOT_H);
+}
+
+int Synera::findRecycleSlotAt(const QPoint& pixel) const
+{
+    for (int row = 0; row < 2; ++row)
+        for (int col = 0; col < 4; ++col)
+            if (recycleSlotRect(row, col).contains(pixel))
+                return row * 4 + col;
+    return -1;
+}
+
+void Synera::renderRecycleSlots(QPainter& painter)
+{
+    int totalW = 4 * RECYCLE_SLOT_W + 3 * RECYCLE_SPACING;
+    int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
+
+    // 标题常驻
+    QFont titleFont;
+    titleFont.setPixelSize(11);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(160, 160, 180));
+    painter.drawText(startX, RECYCLE_Y - 8, "Recycle");
+
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            QRect rc = recycleSlotRect(row, col);
+            int idx = row * 4 + col;
+            Unit* u = m_recycleSlots[idx];
+
+            if (u) {
+                // 有单位：实心色块 + 蓝色边框
+                UnitType t = u->getType();
+                QColor fill = typeFillColor(t, true);
+                painter.setBrush(fill);
+                painter.setPen(QPen(QColor(100, 170, 255), 1));
+                painter.drawRoundedRect(rc, 4, 4);
+
+                painter.setPen(Qt::white);
+                QFont f;
+                f.setPixelSize(13);
+                f.setBold(true);
+                painter.setFont(f);
+                painter.drawText(rc, Qt::AlignCenter, typeLabel(t));
+
+                // HP 小条
+                int barH = 4;
+                int barY = rc.bottom() - barH - 1;
+                double ratio = (double)u->getHp() / u->getMaxHp();
+                QRect barBg(rc.left() + 2, barY, rc.width() - 4, barH);
+                painter.setBrush(QColor(30, 30, 30));
+                painter.setPen(Qt::NoPen);
+                painter.drawRoundedRect(barBg, 1, 1);
+                QColor hpC = ratio > 0.5 ? QColor(80, 210, 80) : ratio > 0.25 ? QColor(210, 190, 30) : QColor(210, 55, 55);
+                painter.setBrush(hpC);
+                painter.drawRoundedRect(QRect(barBg.left(), barY, (int)(barBg.width() * ratio), barH), 1, 1);
+            } else {
+                // 空槽：透明填充 + 白色边框
+                painter.setBrush(Qt::NoBrush);
+                painter.setPen(QPen(QColor(255, 255, 255, 60), 1));
+                painter.drawRoundedRect(rc, 4, 4);
+            }
+        }
     }
 }
 
@@ -419,7 +687,34 @@ void Synera::renderUI(QPainter& painter)
 {
     int textX = BOARD_OFFSET_X + BOARD_PIXEL_SIZE + 30;
 
-    // 阶段标题
+    // ── 顶部信息栏：HP(左) 关卡(中) 金币(右) ──
+    int infoY = 20;
+    QFont infoFont;
+    infoFont.setPixelSize(17);
+    infoFont.setBold(true);
+    painter.setFont(infoFont);
+
+    // HP - 棋盘左上方
+    QColor hpColor = m_playerHp > 30 ? QColor(80, 220, 80) : QColor(220, 60, 60);
+    painter.setPen(hpColor);
+    painter.drawText(BOARD_OFFSET_X, infoY, QString("HP: %1").arg(m_playerHp));
+
+    // 关卡 - 棋盘上方中间
+    painter.setPen(QColor(255, 210, 80));
+    QFont lvlFont;
+    lvlFont.setPixelSize(18);
+    lvlFont.setBold(true);
+    painter.setFont(lvlFont);
+    QString lvlText = QString("Level %1 / %2").arg(m_currentLevel).arg(MAX_LEVEL);
+    painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE / 2 - 50, infoY, lvlText);
+
+    // 金币 - 棋盘右上方
+    painter.setPen(QColor(255, 210, 50));
+    painter.setFont(infoFont);
+    QString goldText = QString("Gold: %1").arg(m_gold);
+    painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE - 100, infoY, goldText);
+
+    // ── 阶段标题 ──
     QFont uiFont;
     uiFont.setPixelSize(16);
     uiFont.setBold(true);
@@ -427,19 +722,29 @@ void Synera::renderUI(QPainter& painter)
 
     QString status;
     if (m_gameOver) {
-        status = "GAME OVER";
-        painter.setPen(QColor(255, 150, 50));
-    } else if (m_phase == GamePhase::Placement) {
-        status = "PLACEMENT PHASE";
-        painter.setPen(QColor(255, 200, 100));
+        if (m_playerVictory) {
+            status = "VICTORY! All levels cleared!";
+            painter.setPen(QColor(80, 255, 120));
+        } else {
+            status = "DEFEAT - GAME OVER";
+            painter.setPen(QColor(255, 80, 80));
+        }
+    } else if (m_phase == GamePhase::Preparation) {
+        if (m_showLevelLoss) {
+            status = "PREPARATION PHASE  —  Level Failed!";
+            painter.setPen(QColor(255, 100, 80));
+        } else {
+            status = "PREPARATION PHASE";
+            painter.setPen(QColor(255, 200, 100));
+        }
     } else {
         status = "BATTLE IN PROGRESS";
         painter.setPen(QColor(255, 120, 80));
     }
     painter.drawText(textX, BOARD_OFFSET_Y + 30, status);
 
-    // 开始战斗按钮
-    if (m_phase == GamePhase::Placement) {
+    // ── 开始战斗按钮 ──
+    if (m_phase == GamePhase::Preparation && !m_gameOver) {
         int btnW = 170, btnH = 40;
         int btnX = textX, btnY = BOARD_OFFSET_Y + 55;
         m_startButtonRect = QRect(btnX, btnY, btnW, btnH);
@@ -468,34 +773,36 @@ void Synera::renderUI(QPainter& painter)
             QFont hintFont;
             hintFont.setPixelSize(11);
             painter.setFont(hintFont);
-            painter.drawText(textX, btnY + btnH + 18, "Drag units to the board");
+            painter.drawText(textX, btnY + btnH + 18, "Buy & drag units to the board");
         }
     }
 
-    // 图例
-    int legendY = m_phase == GamePhase::Placement
+    // ── 图例 ──
+    int legendY = m_phase == GamePhase::Preparation
         ? m_startButtonRect.bottom() + 55 : BOARD_OFFSET_Y + 75;
     QFont legFont;
-    legFont.setPixelSize(12);
+    legFont.setPixelSize(11);
     painter.setFont(legFont);
     painter.setPen(QColor(170, 170, 190));
     painter.drawText(textX, legendY, "Legend:");
 
     struct { QString label; QColor color; } legend[] = {
-        {QString::fromUtf8("\342\227\217 Hero Warrior"), typeFillColor(UnitType::Warrior, true)},
-        {QString::fromUtf8("\342\227\217 Hero Mage"),    typeFillColor(UnitType::Mage, true)},
-        {QString::fromUtf8("\342\227\217 Hero Support"), typeFillColor(UnitType::Support, true)},
-        {QString::fromUtf8("\342\227\217 Enemy Warrior"), typeFillColor(UnitType::Warrior, false)},
-        {QString::fromUtf8("\342\227\217 Enemy Mage"),    typeFillColor(UnitType::Mage, false)},
-        {QString::fromUtf8("\342\227\217 Enemy Support"), typeFillColor(UnitType::Support, false)},
+        {QString::fromUtf8("\342\227\217 Hero Warrior"),  typeFillColor(UnitType::Warrior, true)},
+        {QString::fromUtf8("\342\227\217 Hero Mage"),     typeFillColor(UnitType::Mage, true)},
+        {QString::fromUtf8("\342\227\217 Hero Support"),  typeFillColor(UnitType::Support, true)},
+        {QString::fromUtf8("\342\227\217 Hero Assassin"), typeFillColor(UnitType::Assassin, true)},
+        {QString::fromUtf8("\342\227\217 Enemy Warrior"),  typeFillColor(UnitType::Warrior, false)},
+        {QString::fromUtf8("\342\227\217 Enemy Mage"),     typeFillColor(UnitType::Mage, false)},
+        {QString::fromUtf8("\342\227\217 Enemy Support"),  typeFillColor(UnitType::Support, false)},
+        {QString::fromUtf8("\342\227\217 Enemy Assassin"), typeFillColor(UnitType::Assassin, false)},
     };
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 8; ++i) {
         painter.setPen(legend[i].color);
-        painter.drawText(textX + 8, legendY + 20 + i * 20, legend[i].label);
+        painter.drawText(textX + 8, legendY + 20 + i * 18, legend[i].label);
     }
 
-    // 存活单位
-    int unitListY = legendY + 20 + 6 * 20 + 20;
+    // ── 存活单位列表 ──
+    int unitListY = legendY + 20 + 8 * 18 + 20;
     painter.setPen(QColor(190, 190, 210));
     QFont listTitleFont;
     listTitleFont.setPixelSize(13);
@@ -505,7 +812,7 @@ void Synera::renderUI(QPainter& painter)
 
     unitListY += 22;
     QFont listFont;
-    listFont.setPixelSize(11);
+    listFont.setPixelSize(10);
     painter.setFont(listFont);
     for (auto& u : m_units) {
         if (u->isDisappeared() || u->isDead()) continue;
@@ -517,21 +824,35 @@ void Synera::renderUI(QPainter& painter)
             .arg(u->getMana()).arg(u->getMaxMana())
             .arg(u->getPosition().x).arg(u->getPosition().y);
         painter.drawText(textX + 8, unitListY, info);
-        unitListY += 18;
+        unitListY += 16;
     }
 
-    // 帮助
+    // ── 关卡失败覆盖文字 ──
+    if (m_showLevelLoss && m_phase == GamePhase::Preparation) {
+        QFont failFont;
+        failFont.setPixelSize(36);
+        failFont.setBold(true);
+        painter.setFont(failFont);
+        painter.setPen(QColor(255, 60, 60));
+        int cx = BOARD_OFFSET_X + BOARD_PIXEL_SIZE / 2;
+        int cy = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE / 2;
+        QRect overlayRect(cx - 300, cy - 40, 600, 80);
+        painter.drawText(overlayRect, Qt::AlignCenter, "Level Failed!");
+    }
+
+    // ── 帮助 ──
     int helpY = unitListY + 16;
     painter.setPen(QColor(140, 140, 160));
     QFont helpFont;
     helpFont.setPixelSize(11);
     painter.setFont(helpFont);
-    if (m_phase == GamePhase::Placement) {
-        painter.drawText(textX, helpY, "Drag from left pool to board");
-        painter.drawText(textX, helpY + 18, "Press R to reset");
+    if (m_phase == GamePhase::Preparation) {
+        painter.drawText(textX, helpY, "Buy heroes from shop (left)");
+        painter.drawText(textX, helpY + 16, "Drag from shop / recycle to board");
+        painter.drawText(textX, helpY + 32, "Press R to full reset");
     } else {
         painter.drawText(textX, helpY, "Auto-combat in progress...");
-        painter.drawText(textX, helpY + 18, "Press R to reset");
+        painter.drawText(textX, helpY + 16, "Press R to full reset");
     }
 }
 
@@ -565,7 +886,8 @@ void Synera::mousePressEvent(QMouseEvent *event)
     if (m_gameOver) return;
     QPoint pos = event->pos();
 
-    if (m_phase == GamePhase::Placement) {
+    if (m_phase == GamePhase::Preparation) {
+        // 开始战斗按钮
         if (m_startButtonRect.contains(pos)) {
             bool hasBoardHero = false;
             for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
@@ -576,6 +898,19 @@ void Synera::mousePressEvent(QMouseEvent *event)
             if (hasBoardHero) startBattle();
             return;
         }
+
+        // 商店购买按钮
+        for (int i = 0; i < (int)m_buyButtonRects.size(); ++i) {
+            if (m_buyButtonRects[i].contains(pos)) {
+                int cost = heroCost(m_shop[i].type);
+                if (m_gold >= cost) {
+                    m_gold -= cost;
+                    m_shop[i].count++;
+                }
+                return;
+            }
+        }
+
         processDragStart(pos);
     }
 }
@@ -602,22 +937,35 @@ void Synera::mouseReleaseEvent(QMouseEvent *event)
 
 void Synera::processDragStart(const QPoint& mousePos)
 {
-    // 优先检查左侧备战池
-    int poolIdx = findPoolSlotAt(mousePos);
-    if (poolIdx >= 0 && m_unitPool[poolIdx].count > 0) {
-        Unit* u = createUnitFromPool(m_unitPool[poolIdx].type, true);
+    // 1) 商店池
+    int shopIdx = findShopSlotAt(mousePos);
+    if (shopIdx >= 0 && m_shop[shopIdx].count > 0) {
+        Unit* u = createUnitFromPool(m_shop[shopIdx].type, true);
         m_draggedUnit = u;
-        m_dragFromPoolIndex = poolIdx;
+        m_dragFromShopIndex = shopIdx;
+        m_dragFromRecycleIndex = -1;
         m_dragCurrentPos = mousePos;
-        m_unitPool[poolIdx].count--;
+        m_shop[shopIdx].count--;
         return;
     }
 
-    // 检查棋盘上的英雄（可拖回池子）
+    // 2) 回收槽
+    int recycleIdx = findRecycleSlotAt(mousePos);
+    if (recycleIdx >= 0 && m_recycleSlots[recycleIdx] != nullptr) {
+        m_draggedUnit = m_recycleSlots[recycleIdx];
+        m_recycleSlots[recycleIdx] = nullptr;
+        m_dragFromShopIndex = -1;
+        m_dragFromRecycleIndex = recycleIdx;
+        m_dragCurrentPos = mousePos;
+        return;
+    }
+
+    // 3) 棋盘上的英雄
     Unit* clicked = findUnitAtPixel(mousePos);
     if (clicked && dynamic_cast<Hero*>(clicked) && !clicked->isDisappeared()) {
         m_draggedUnit = clicked;
-        m_dragFromPoolIndex = -1;
+        m_dragFromShopIndex = -1;
+        m_dragFromRecycleIndex = -1;
         m_dragCurrentPos = mousePos;
         m_board.removeUnit(clicked->getPosition().x, clicked->getPosition().y);
     }
@@ -631,27 +979,34 @@ void Synera::processDrop(const QPoint& mousePos)
     QRect unitRect(mousePos.x() - CELL_SIZE / 2,
                    mousePos.y() - CELL_SIZE / 2, CELL_SIZE, CELL_SIZE);
 
-    // 放回池子？
-    int poolIdx = findPoolSlotAt(mousePos);
-    if (poolIdx >= 0) {
-        // 返还数量
-        if (m_dragFromPoolIndex >= 0)
-            m_unitPool[m_dragFromPoolIndex].count++;
-        else {
-            // 从棋盘拖回：找到对应类型的 pool slot
-            UnitType t = m_draggedUnit->getType();
-            for (auto& slot : m_unitPool) {
-                if (slot.type == t) { slot.count++; break; }
-            }
-            m_draggedUnit->setDisappeared(true); // 标记移除以避免渲染
-        }
+    // ── 放回商店池 ──
+    int shopIdx = findShopSlotAt(mousePos);
+    if (shopIdx >= 0 && m_shop[shopIdx].type == m_draggedUnit->getType()) {
+        m_shop[shopIdx].count++;
+        m_draggedUnit->setDisappeared(true);
         m_draggedUnit = nullptr;
-        m_dragFromPoolIndex = -1;
+        m_dragFromShopIndex = -1;
+        m_dragFromRecycleIndex = -1;
         update();
         return;
     }
 
-    // 找棋盘上 >50% 重叠的空格
+    // ── 放回回收槽 ──
+    int recycleIdx = findRecycleSlotAt(mousePos);
+    if (recycleIdx >= 0 && m_recycleSlots[recycleIdx] == nullptr) {
+        int typeIdx = static_cast<int>(m_draggedUnit->getType());
+        int slotTypeIdx = recycleIdx % 4;
+        if (typeIdx == slotTypeIdx) {
+            m_recycleSlots[recycleIdx] = m_draggedUnit;
+            m_draggedUnit = nullptr;
+            m_dragFromShopIndex = -1;
+            m_dragFromRecycleIndex = -1;
+            update();
+            return;
+        }
+    }
+
+    // ── 放到棋盘 ──
     int bestGx = -1, bestGy = -1, bestOverlap = 0;
     for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
         for (int x = 0; x < Board::SIZE; ++x) {
@@ -667,29 +1022,31 @@ void Synera::processDrop(const QPoint& mousePos)
     }
 
     if (bestGx >= 0) {
-        if (m_dragFromPoolIndex < 0) {
-            // 从棋盘拖到另一格
-        }
         m_board.placeUnit(m_draggedUnit, bestGx, bestGy);
-        m_dragFromPoolIndex = -1;
+        m_dragFromShopIndex = -1;
+        m_dragFromRecycleIndex = -1;
     } else {
-        // 没合法位置：返还
-        if (m_dragFromPoolIndex >= 0) {
-            m_unitPool[m_dragFromPoolIndex].count++;
+        // 没有合法位置 → 返还来源
+        if (m_dragFromShopIndex >= 0) {
+            m_shop[m_dragFromShopIndex].count++;
             m_draggedUnit->setDisappeared(true);
+        } else if (m_dragFromRecycleIndex >= 0) {
+            m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
         } else {
+            // 从棋盘来，放回原位
             m_board.placeUnit(m_draggedUnit, m_draggedUnit->getPosition().x,
                               m_draggedUnit->getPosition().y);
         }
     }
 
     m_draggedUnit = nullptr;
-    m_dragFromPoolIndex = -1;
+    m_dragFromShopIndex = -1;
+    m_dragFromRecycleIndex = -1;
     update();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 自动战斗 — 单回合 tick
+// 自动战斗 — 每帧调用
 // ═══════════════════════════════════════════════════════════════
 
 void Synera::processBurningTick(std::vector<Unit*>& alive)
@@ -697,13 +1054,16 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
     for (Unit* u : alive) {
         if (u->isBurning()) {
             u->tickBurning();
-            if (u->isDead())
+            if (u->isDead()) {
+                if (dynamic_cast<Enemy*>(u) != nullptr)
+                    m_pendingGold += enemyGoldValue(u->getType());
                 m_board.removeUnit(u->getPosition().x, u->getPosition().y);
+            }
         }
     }
 }
 
-void Synera::processCombatTick()
+void Synera::processCombatFrame()
 {
     struct Move { Unit* unit; Position to; };
     std::vector<Move> moves;
@@ -717,52 +1077,90 @@ void Synera::processCombatTick()
                 alive.push_back(u);
         }
 
-    // 先处理燃烧伤害
-    processBurningTick(alive);
+    // 燃烧伤害（每 BURNING_INTERVAL 帧）
+    if (m_frameCounter % BURNING_INTERVAL == 0)
+        processBurningTick(alive);
 
     for (Unit* u : alive) {
         if (u->isDead() || u->isDisappeared()) continue;
         Position pos = u->getPosition();
 
+        u->incrementTimers();
+
         // ── 法力值满 → 释放技能 ──
         if (u->getMana() >= Unit::MAX_MANA) {
+            // 记录技能前存活敌方
+            std::vector<Unit*> enemiesBeforeSkill;
+            for (Unit* eu : alive) {
+                if (!eu->isDead() && !eu->isDisappeared()
+                    && dynamic_cast<Enemy*>(eu) != nullptr)
+                    enemiesBeforeSkill.push_back(eu);
+            }
+
             u->useSkill(m_board, alive);
             u->resetMana();
+            u->resetMoveTimer();
+            u->resetAttackTimer();
+
+            // 技能击杀的敌方计入金币
+            for (Unit* eu : enemiesBeforeSkill) {
+                if (eu->isDead())
+                    m_pendingGold += enemyGoldValue(eu->getType());
+            }
             continue;
         }
 
         if (u->canHeal()) {
             // ── 辅助逻辑 ──
             Unit* healTarget = findHealTarget(u);
-            if (healTarget && manhattanDist(pos, healTarget->getPosition()) <= u->getAttackRange()) {
+            bool inRange = healTarget && manhattanDist(pos, healTarget->getPosition()) <= u->getAttackRange();
+
+            // 治疗（独立计时器）
+            if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                 healTarget->heal(u->getHealAmount());
                 u->gainMana();
-                continue;
+                u->resetAttackTimer();
+            } else if (!inRange) {
+                u->resetAttackTimer();
             }
-            if (healTarget) {
-                Position next = moveStepToward(pos, healTarget->getPosition());
-                if (!(next == pos)) moves.push_back({u, next});
-                continue;
-            }
-            // 无受伤队友 → 按战士逻辑移动
-            Unit* enemy = findNearestEnemyFor(u);
-            if (enemy) {
-                Position next = moveStepToward(pos, enemy->getPosition());
-                if (!(next == pos)) moves.push_back({u, next});
+
+            // 移动（独立计时器）
+            if (u->getMoveTimer() >= u->getMoveSpeed()) {
+                Unit* target = healTarget;
+                if (!target) target = findNearestEnemyFor(u);
+                if (target) {
+                    Position next = moveStepToward(pos, target->getPosition());
+                    if (!(next == pos)) moves.push_back({u, next});
+                }
+                u->resetMoveTimer();
             }
         } else {
-            // ── 战士 / 法师 ──
+            // ── 战士 / 法师 / 刺客 ──
             Unit* target = findNearestEnemyFor(u);
-            if (!target) continue;
+            if (target) {
+                bool inRange = canAttack(u, target);
 
-            if (canAttack(u, target)) {
-                u->attack(*target);
-                u->gainMana();
-                if (target->isDead())
-                    m_board.removeUnit(target->getPosition().x, target->getPosition().y);
-            } else {
-                Position next = moveStepToward(pos, target->getPosition());
-                if (!(next == pos)) moves.push_back({u, next});
+                // 攻击（独立计时器）
+                if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
+                    u->attack(*target);
+                    u->gainMana();
+
+                    if (target->isDead()) {
+                        bool isEnemy = dynamic_cast<Enemy*>(target) != nullptr;
+                        if (isEnemy) m_pendingGold += enemyGoldValue(target->getType());
+                        m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+                    }
+                    u->resetAttackTimer();
+                } else if (!inRange) {
+                    u->resetAttackTimer();
+                }
+
+                // 移动（独立计时器）
+                if (u->getMoveTimer() >= u->getMoveSpeed()) {
+                    Position next = moveStepToward(pos, target->getPosition());
+                    if (!(next == pos)) moves.push_back({u, next});
+                    u->resetMoveTimer();
+                }
             }
         }
     }
@@ -775,11 +1173,11 @@ void Synera::processCombatTick()
         m_board.placeUnit(m.unit, m.to.x, m.to.y);
     }
 
-    checkWinCondition();
+    checkLevelEnd();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 索敌（自动战斗）
+// 索敌
 // ═══════════════════════════════════════════════════════════════
 
 Unit* Synera::findNearestEnemyFor(Unit* unit) const
@@ -793,7 +1191,7 @@ Unit* Synera::findNearestEnemyFor(Unit* unit) const
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u == unit || u->isDead() || u->isDisappeared()) continue;
             bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
-            if (uIsHero == isHero) continue; // 同阵营
+            if (uIsHero == isHero) continue;
 
             int d = manhattanDist(unit->getPosition(), u->getPosition());
             if (d < bestDist) { bestDist = d; best = u; }
@@ -813,7 +1211,7 @@ Unit* Synera::findHealTarget(Unit* support) const
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u == support || u->isDead() || u->isDisappeared()) continue;
-            if (u->getHp() >= u->getMaxHp()) continue; // 没受伤
+            if (u->getHp() >= u->getMaxHp()) continue;
             bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
             if (uIsHero != isHero) continue;
 
@@ -824,9 +1222,11 @@ Unit* Synera::findHealTarget(Unit* support) const
             if (d < bestDist) better = true;
             else if (d == bestDist) {
                 int tr = (u->getType() == UnitType::Warrior) ? 0 :
-                         (u->getType() == UnitType::Mage) ? 1 : 2;
+                         (u->getType() == UnitType::Mage) ? 1 :
+                         (u->getType() == UnitType::Assassin) ? 2 : 3;
                 int br = (bestType == UnitType::Warrior) ? 0 :
-                         (bestType == UnitType::Mage) ? 1 : 2;
+                         (bestType == UnitType::Mage) ? 1 :
+                         (bestType == UnitType::Assassin) ? 2 : 3;
                 if (tr < br) better = true;
                 else if (tr == br && xd < bestXDist) better = true;
             }
@@ -863,10 +1263,10 @@ bool Synera::canAttack(Unit* attacker, Unit* target) const
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 胜负判定
+// 关卡结束判定
 // ═══════════════════════════════════════════════════════════════
 
-void Synera::checkWinCondition()
+void Synera::checkLevelEnd()
 {
     bool hasHeroNonSupport = false, hasEnemyNonSupport = false;
     bool hasHeroAny = false, hasEnemyAny = false;
@@ -884,8 +1284,20 @@ void Synera::checkWinCondition()
     }
 
     // 一方全员阵亡，或一方只剩辅助 → 判负
-    if (!hasHeroAny || !hasHeroNonSupport) m_gameOver = true;
-    if (!hasEnemyAny || !hasEnemyNonSupport) m_gameOver = true;
+    bool heroLost = (!hasHeroAny || !hasHeroNonSupport);
+    bool enemyLost = (!hasEnemyAny || !hasEnemyNonSupport);
+
+    if (heroLost || enemyLost) {
+        // 如果敌方只剩辅助，视为已击败这些辅助（给金币）
+        if (enemyLost) {
+            for (auto& u : m_units) {
+                if (u->isDisappeared() || u->isDead()) continue;
+                if (dynamic_cast<Enemy*>(u.get()) == nullptr) continue;
+                m_pendingGold += enemyGoldValue(u->getType());
+            }
+        }
+        endLevel(enemyLost); // enemyLost = player won
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════

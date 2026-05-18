@@ -14,7 +14,7 @@ struct Position {
     }
 };
 
-enum class UnitType { Warrior, Mage, Support };
+enum class UnitType { Warrior, Mage, Support, Assassin };
 
 inline int manhattanDist(const Position& a, const Position& b) {
     return std::abs(a.x - b.x) + std::abs(a.y - b.y);
@@ -26,7 +26,8 @@ class Unit {
 public:
     static constexpr int MAX_MANA = 5;
 
-    Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type);
+    Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
+         int moveSpeed = 30, int attackSpeed = 60, int startMana = 0);
     virtual ~Unit() = default;
 
     virtual void attack(Unit& target);
@@ -70,6 +71,15 @@ public:
     void setHp(int hp);
     void setMaxHp(int maxHp);
 
+    // 速度 / 计时器
+    int getMoveSpeed() const;
+    int getAttackSpeed() const;
+    int getMoveTimer() const;
+    int getAttackTimer() const;
+    void incrementTimers();
+    void resetMoveTimer();
+    void resetAttackTimer();
+
 protected:
     std::string m_name;
     int m_hp;
@@ -81,6 +91,10 @@ protected:
     int m_mana;
     bool m_burning;
     int m_burningTurns;
+    int m_moveSpeed;
+    int m_attackSpeed;
+    int m_moveTimer;
+    int m_attackTimer;
 };
 
 #endif // UNIT_H
