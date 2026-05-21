@@ -9,6 +9,7 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_equipment(nullptr)
     , m_disappeared(false)
     , m_type(type)
+    , m_starLevel(0)
     , m_mana(startMana)
     , m_burning(false)
     , m_burningTurns(0)
@@ -84,6 +85,8 @@ int Unit::getMaxHp() const { return m_maxHp; }
 Position Unit::getPosition() const { return m_pos; }
 Weapon* Unit::getEquipment() const { return m_equipment; }
 UnitType Unit::getType() const { return m_type; }
+int Unit::getStarLevel() const { return m_starLevel; }
+void Unit::setStarLevel(int level) { m_starLevel = level; }
 
 void Unit::setPosition(int x, int y) { m_pos = Position(x, y); }
 void Unit::setEquipment(Weapon* weapon) { m_equipment = weapon; }

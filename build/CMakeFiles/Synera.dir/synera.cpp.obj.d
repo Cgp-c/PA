@@ -424,6 +424,8 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qpainter.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qtextoption.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qpen.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QPainterPath \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qpainterpath.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qevent.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qiodevice.h \
@@ -442,4 +444,52 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QTransform \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qscreen_platform.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QKeyEvent \
- C:/Qt/6.11.0/mingw_64/include/QtGui/QFont
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QFont \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonDocument \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qjsondocument.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonparseerror.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonObject \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonobject.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonvalue.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qcborvalue.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qcborcommon.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qdatetime.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qcalendar.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qregularexpression.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/quuid.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonArray \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonarray.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QFile \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qfile.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/qfiledevice.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/filesystem \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_fwd.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_path.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/locale \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwctype \
+ C:/mingw64/x86_64-w64-mingw32/include/wctype.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_base.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_inline.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets_nonio.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/time_members.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/messages_members.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets_nonio.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_conv.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iomanip \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/quoted_string.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/sstream \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/istream \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ios \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ostream \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/istream.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/sstream.tcc \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/codecvt \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_dir.h \
+ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_ops.h

@@ -1209,6 +1209,10 @@ CMakeFiles/Synera.dir/main.cpp.obj: C:/Users/cgp83/Desktop/PA/main.cpp \
 
 CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtCore/QElapsedTimer \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/QFile \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonArray \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonDocument \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonObject \
   C:/Qt/6.11.0/mingw_64/include/QtCore/QList \
   C:/Qt/6.11.0/mingw_64/include/QtCore/QObject \
   C:/Qt/6.11.0/mingw_64/include/QtCore/QRect \
@@ -1242,6 +1246,9 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qbytearrayalgorithms.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qbytearraylist.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qbytearrayview.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qcalendar.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qcborcommon.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qcborvalue.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qchar.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qcheckedint_impl.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qcompare.h \
@@ -1259,12 +1266,15 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qcoreevent.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qdarwinhelpers.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qdatastream.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qdatetime.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qdeadlinetimer.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qdebug.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qelapsedtimer.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qendian.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qeventloop.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qexceptionhandling.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qfile.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qfiledevice.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qflags.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qfloat16.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qforeach.h \
@@ -1279,6 +1289,11 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qiodevicebase.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qiterable.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qiterator.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonarray.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qjsondocument.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonobject.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonparseerror.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonvalue.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qlatin1stringview.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qline.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qlist.h \
@@ -1304,6 +1319,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qprocessordetection.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qrect.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qrefcount.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/qregularexpression.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qscopedpointer.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qscopeguard.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qset.h \
@@ -1352,6 +1368,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qtypes.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qurl.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qutf8stringview.h \
+  C:/Qt/6.11.0/mingw_64/include/QtCore/quuid.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qvariant.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qvarlengtharray.h \
   C:/Qt/6.11.0/mingw_64/include/QtCore/qversiontagging.h \
@@ -1361,6 +1378,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtGui/QKeyEvent \
   C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent \
   C:/Qt/6.11.0/mingw_64/include/QtGui/QPainter \
+  C:/Qt/6.11.0/mingw_64/include/QtGui/QPainterPath \
   C:/Qt/6.11.0/mingw_64/include/QtGui/QTransform \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qaction.h \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qbitmap.h \
@@ -1382,6 +1400,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qkeysequence.h \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qpaintdevice.h \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qpainter.h \
+  C:/Qt/6.11.0/mingw_64/include/QtGui/qpainterpath.h \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qpalette.h \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qpen.h \
   C:/Qt/6.11.0/mingw_64/include/QtGui/qpixelformat.h \
@@ -1432,11 +1451,14 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/atomic_base.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/atomic_lockfree_defines.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_string.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_string.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/char_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/charconv.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/chrono.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/concept_check.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cpp_type_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/cxxabi_forced.h \
@@ -1446,6 +1468,10 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_defines.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/exception_ptr.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_dir.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_fwd.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_ops.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_path.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functexcept.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/functional_hash.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hash_bytes.h \
@@ -1453,9 +1479,15 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/invoke.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ios_base.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/istream.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/list.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_classes.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_classes.tcc \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_conv.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.tcc \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets_nonio.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets_nonio.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/localefwd.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/memory_resource.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/memoryfwd.h \
@@ -1464,11 +1496,14 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/nested_exception.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/new_allocator.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream_insert.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/parse_numbers.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/postypes.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/predefined_ops.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ptr_traits.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/quoted_string.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/range_access.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/refwrap.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/requires_hosted.h \
@@ -1476,6 +1511,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/shared_ptr_atomic.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/shared_ptr_base.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/specfun.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/sstream.tcc \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_abs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_function.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h \
@@ -1521,6 +1557,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/climits \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/clocale \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cmath \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/codecvt \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/compare \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/concepts \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cstddef \
@@ -1530,6 +1567,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cstring \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ctime \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwchar \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwctype \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/assertions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/debug/debug.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/exception \
@@ -1540,17 +1578,23 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/numeric_traits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/string_conversions.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/type_traits.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/filesystem \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/functional \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/initializer_list \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iomanip \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ios \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iosfwd \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/istream \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iterator \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/limits \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/list \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/locale \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/memory \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/new \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/numeric \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/optional \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ostream \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/execution_defs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_memory_defs.h \
@@ -1558,6 +1602,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/pstl_config.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ratio \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/set \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/sstream \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/stdexcept \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/stdlib.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/streambuf \
@@ -1590,10 +1635,14 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++config.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/c++locale.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/cpu_defines.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_base.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_inline.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/error_constants.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/gthr-default.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/gthr.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/messages_members.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/os_defines.h \
+  C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/time_members.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/limits.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/mm_malloc.h \
   C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/stdarg.h \
@@ -1647,6 +1696,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp \
   C:/mingw64/x86_64-w64-mingw32/include/time.h \
   C:/mingw64/x86_64-w64-mingw32/include/vadefs.h \
   C:/mingw64/x86_64-w64-mingw32/include/wchar.h \
+  C:/mingw64/x86_64-w64-mingw32/include/wctype.h \
   C:/Users/cgp83/Desktop/PA/board.h \
   C:/Users/cgp83/Desktop/PA/enemy.h \
   C:/Users/cgp83/Desktop/PA/hero.h \
@@ -1867,6 +1917,8 @@ CMakeFiles/Synera.dir/weapon.cpp.obj: C:/Users/cgp83/Desktop/PA/weapon.cpp \
   C:/Users/cgp83/Desktop/PA/weapon.h
 
 
+C:/Qt/6.11.0/mingw_64/include/QtGui/qpainterpath.h:
+
 Synera_autogen/mocs_compilation.cpp:
 
 C:/Qt/6.11.0/mingw_64/include/QtGui/QFont:
@@ -1876,6 +1928,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qtimer.h:
 C:/Qt/6.11.0/mingw_64/include/QtCore/qtaggedpointer.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qglobal.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/codecvt:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_classes.tcc:
 
@@ -1890,6 +1944,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/q20functional.h:
 C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qfunctionaltools_impl.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonObject:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qbasictimer.h:
 
@@ -1961,6 +2017,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/new:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qabstracteventdispatcher.h:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/quoted_string.h:
+
 C:/Qt/6.11.0/mingw_64/include/QtCore/qiodevice.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_string.h:
@@ -1986,6 +2044,10 @@ C:/Qt/6.11.0/mingw_64/include/QtWidgets/qstatusbar.h:
 C:/Qt/6.11.0/mingw_64/include/QtCore/qhashfunctions.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qarraydata.h:
+
+C:/mingw64/x86_64-w64-mingw32/include/wctype.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ostream:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qarraydatapointer.h:
 
@@ -2035,7 +2097,11 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qdeadlinetimer.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qcheckedint_impl.h:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets_nonio.tcc:
+
 C:/Qt/6.11.0/mingw_64/include/QtCore/qbytearrayalgorithms.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/filesystem:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qcontainerfwd.h:
 
@@ -2044,6 +2110,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qchar.h:
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iosfwd:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qcompare.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/istream:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qtmochelpers.h:
 
@@ -2089,6 +2157,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qforeach.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qgenericatomic.h:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets_nonio.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/exp_integral.tcc:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/ell_integral.tcc:
@@ -2133,6 +2203,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qlogging.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qmalloc.h:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_ops.h:
+
 C:/Qt/6.11.0/mingw_64/include/QtCore/qstringfwd.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qmap.h:
@@ -2150,6 +2222,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qmetatype.h:
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qminmax.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_base.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qnamespace.h:
 
@@ -2216,6 +2290,8 @@ C:/Qt/6.11.0/mingw_64/include/QtCore/qstdlibdetection.h:
 C:/Qt/6.11.0/mingw_64/include/QtCore/qstring.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qstringalgorithms.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.tcc:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/qstringconverter.h:
 
@@ -2497,11 +2573,17 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/hashtable_policy.h
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/invoke.h:
 
+C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonArray:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ios_base.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_fwd.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/nested_exception.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_classes.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonvalue.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/cpu_defines.h:
 
@@ -2519,7 +2601,11 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/move.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/new_allocator.h:
 
+C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonobject.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/node_handle.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_conv.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/sdks/_mingw_ddk.h:
 
@@ -2551,11 +2637,15 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/specfun.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/std_abs.h:
 
+C:/Qt/6.11.0/mingw_64/include/QtCore/qcborcommon.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_algo.h:
 
 C:/Users/cgp83/Desktop/PA/weapon.cpp:
 
 C:/Qt/6.11.0/mingw_64/include/QtGui/qpainter.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qdatetime.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_construct.h:
 
@@ -2576,6 +2666,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tempbuf.h:
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/climits:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_tree.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.tcc:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/stl_uninitialized.h:
 
@@ -2641,6 +2733,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ext/type_traits.h:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iterator:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/time_members.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/limits:
 
 C:/mingw64/x86_64-w64-mingw32/include/_timeval.h:
@@ -2649,9 +2743,13 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/list:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/map:
 
+C:/Qt/6.11.0/mingw_64/include/QtCore/qfiledevice.h:
+
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/memory:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/numeric:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/istream.tcc:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/pstl/glue_algorithm_defs.h:
 
@@ -2680,6 +2778,8 @@ C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/hypergeometric.tcc:
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/modified_bessel_func.tcc:
 
 C:/Qt/6.11.0/mingw_64/include/QtGui/qinputdevice.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtGui/QPainterPath:
 
 C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/tr1/riemann_zeta.tcc:
 
@@ -2718,6 +2818,8 @@ C:/mingw64/x86_64-w64-mingw32/include/_mingw_secapi.h:
 C:/mingw64/x86_64-w64-mingw32/include/_mingw_stat64.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/_mingw_stdarg.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_dir.h:
 
 C:/mingw64/x86_64-w64-mingw32/include/corecrt_stdio_config.h:
 
@@ -2771,12 +2873,60 @@ C:/Users/cgp83/Desktop/PA/main.cpp:
 
 C:/Users/cgp83/Desktop/PA/synera.cpp:
 
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/cwctype:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.tcc:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/QFile:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonDocument:
+
 C:/Qt/6.11.0/mingw_64/include/QtCore/QRect:
 
 C:/Qt/6.11.0/mingw_64/include/QtCore/QSize:
 
+C:/Qt/6.11.0/mingw_64/include/QtCore/qcalendar.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qcborvalue.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qfile.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonarray.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qjsondocument.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qjsonparseerror.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/qregularexpression.h:
+
+C:/Qt/6.11.0/mingw_64/include/QtCore/quuid.h:
+
 C:/Qt/6.11.0/mingw_64/include/QtGui/qeventpoint.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/locale:
 
 C:/Qt/6.11.0/mingw_64/include/QtGui/qpen.h:
 
 C:/Qt/6.11.0/mingw_64/include/QtGui/qscreen.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/basic_ios.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/messages_members.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/codecvt.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/fs_path.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/locale_facets.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/ostream.h:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/bits/sstream.tcc:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/iomanip:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/sstream:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/ios:
+
+C:/mingw64/lib/gcc/x86_64-w64-mingw32/15.2.0/include/c++/x86_64-w64-mingw32/bits/ctype_inline.h:

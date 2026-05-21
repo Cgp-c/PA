@@ -5,10 +5,16 @@
 #include "weapon.h"
 
 #include <QPainter>
+#include <QPainterPath>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QFont>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFile>
 #include <cstdlib>
+#include <cmath>
 #include <algorithm>
 
 // ═══════════════════════════════════════════════════════════════
@@ -25,7 +31,7 @@ Synera::Synera(QWidget *parent)
     , m_frameCounter(0)
     , m_currentLevel(1)
     , m_playerHp(100)
-    , m_gold(280)
+    , m_gold(360)
     , m_pendingGold(0)
     , m_recycleSlots(8, nullptr)
     , m_draggedUnit(nullptr)
@@ -68,7 +74,7 @@ void Synera::initGame()
     m_frameCounter = 0;
     m_currentLevel = 1;
     m_playerHp = 100;
-    m_gold = 280;
+    m_gold = 360;
     m_pendingGold = 0;
 
     // 初始化商店：4 种类型，初始库存 0
@@ -134,14 +140,14 @@ int Synera::enemyGoldValue(UnitType t) const
 // 创建单位
 // ═══════════════════════════════════════════════════════════════
 
-Unit* Synera::createUnitFromPool(UnitType type, bool isHero)
+Unit* Synera::createUnitFromPool(UnitType type, bool isHero, int starLevel)
 {
     if (isHero) {
         switch (type) {
-            case UnitType::Warrior:  { auto u = std::make_unique<WarriorHero>();  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Mage:     { auto u = std::make_unique<MageHero>();     Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Support:  { auto u = std::make_unique<SupportHero>();  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
-            case UnitType::Assassin: { auto u = std::make_unique<AssassinHero>(); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Warrior:  { auto u = std::make_unique<WarriorHero>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Mage:     { auto u = std::make_unique<MageHero>(starLevel);     Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Support:  { auto u = std::make_unique<SupportHero>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Assassin: { auto u = std::make_unique<AssassinHero>(starLevel); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
         }
     } else {
         switch (type) {
@@ -152,6 +158,58 @@ Unit* Synera::createUnitFromPool(UnitType type, bool isHero)
         }
     }
     return nullptr;
+}
+
+Unit* Synera::createUpgradedHero(UnitType type, int starLevel)
+{
+    return createUnitFromPool(type, true, starLevel);
+}
+
+bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
+{
+    Unit* targetUnit = m_board.getUnitAt(boardX, boardY);
+    if (!targetUnit || !draggedUnit) return false;
+    if (targetUnit == draggedUnit) return false;
+
+    // Both must be heroes
+    Hero* h1 = dynamic_cast<Hero*>(draggedUnit);
+    Hero* h2 = dynamic_cast<Hero*>(targetUnit);
+    if (!h1 || !h2) return false;
+
+    // Same name and same star level
+    if (draggedUnit->getName() != targetUnit->getName()) return false;
+    int starLv = draggedUnit->getStarLevel();
+    if (starLv != targetUnit->getStarLevel()) return false;
+
+    // Max star level is 3
+    if (starLv >= 3) return false;
+
+    int newStarLevel = starLv + 1;
+    UnitType type = draggedUnit->getType();
+
+    // Remove target from board; dragged unit is already detached from its source
+    m_board.removeUnit(boardX, boardY);
+
+    // Delete both old units
+    draggedUnit->setDisappeared(true);
+    targetUnit->setDisappeared(true);
+
+    // Create new upgraded unit
+    Unit* newUnit = createUpgradedHero(type, newStarLevel);
+
+    // Place on board
+    m_board.placeUnit(newUnit, boardX, boardY);
+
+    // Mana: Assassin gets full, others start at 0
+    if (type == UnitType::Assassin) {
+        // Assassin starts with full mana after star-up
+        for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
+            newUnit->gainMana();
+    } else {
+        newUnit->resetMana();
+    }
+
+    return true;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -216,7 +274,7 @@ void Synera::endLevel(bool playerWon)
                 u->resetMoveTimer();
                 u->resetAttackTimer();
 
-                // 放入对应类型的回收槽（优先第一行）
+                // 放入对应类型的回收槽（优先第一行），类型槽满则用任意空槽
                 int typeIdx = static_cast<int>(u->getType());
                 bool placed = false;
                 for (int row = 0; row < 2; ++row) {
@@ -225,6 +283,15 @@ void Synera::endLevel(bool playerWon)
                         m_recycleSlots[slotIdx] = u;
                         placed = true;
                         break;
+                    }
+                }
+                if (!placed) {
+                    for (int i = 0; i < 8; ++i) {
+                        if (m_recycleSlots[i] == nullptr) {
+                            m_recycleSlots[i] = u;
+                            placed = true;
+                            break;
+                        }
                     }
                 }
                 if (placed)
@@ -281,14 +348,171 @@ void Synera::endLevel(bool playerWon)
         return;
     }
 
-    if (playerWon && m_currentLevel >= MAX_LEVEL) {
-        m_gameOver = true;
-        m_playerVictory = true;
-        return;
+    if (playerWon) {
+        if (m_currentLevel >= MAX_LEVEL) {
+            m_gameOver = true;
+            m_playerVictory = true;
+            return;
+        }
+        ++m_currentLevel;
     }
 
-    ++m_currentLevel;
     initLevel();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 存档 / 读档
+// ═══════════════════════════════════════════════════════════════
+
+static const char* SAVE_PATH = "savegame.json";
+
+void Synera::saveGame(const QString& filePath)
+{
+    QJsonObject root;
+
+    root["gold"] = m_gold;
+    root["currentLevel"] = m_currentLevel;
+    root["playerHp"] = m_playerHp;
+    root["pendingGold"] = m_pendingGold;
+
+    // 商店库存
+    QJsonArray shopArr;
+    for (auto& slot : m_shop) {
+        QJsonObject s;
+        s["type"] = static_cast<int>(slot.type);
+        s["count"] = slot.count;
+        shopArr.append(s);
+    }
+    root["shop"] = shopArr;
+
+    // 棋盘上的英雄
+    QJsonArray boardArr;
+    for (int y = 0; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            Hero* h = dynamic_cast<Hero*>(u);
+            if (!h) continue;
+
+            QJsonObject bu;
+            bu["x"] = x;
+            bu["y"] = y;
+            bu["type"] = static_cast<int>(u->getType());
+            bu["star"] = u->getStarLevel();
+            bu["hp"] = u->getHp();
+            bu["maxHp"] = u->getMaxHp();
+            bu["mana"] = u->getMana();
+            bu["burning"] = u->getBurningTurns();
+            if (u->getEquipment())
+                bu["equip"] = QString("%1 %2").arg(QString::fromStdString(u->getEquipment()->getName()))
+                                               .arg(u->getEquipment()->getDamage());
+            boardArr.append(bu);
+        }
+    }
+    root["boardUnits"] = boardArr;
+
+    // 回收槽中的英雄
+    QJsonArray recycleArr;
+    for (int i = 0; i < 8; ++i) {
+        Unit* u = m_recycleSlots[i];
+        if (!u || u->isDead() || u->isDisappeared()) {
+            recycleArr.append(QJsonValue::Null);
+            continue;
+        }
+        QJsonObject ru;
+        ru["slot"] = i;
+        ru["type"] = static_cast<int>(u->getType());
+        ru["star"] = u->getStarLevel();
+        ru["hp"] = u->getHp();
+        ru["maxHp"] = u->getMaxHp();
+        ru["mana"] = u->getMana();
+        ru["burning"] = u->getBurningTurns();
+        if (u->getEquipment())
+            ru["equip"] = QString("%1 %2").arg(QString::fromStdString(u->getEquipment()->getName()))
+                                           .arg(u->getEquipment()->getDamage());
+        recycleArr.append(ru);
+    }
+    root["recycleUnits"] = recycleArr;
+
+    QJsonDocument doc(root);
+    QFile file(filePath);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson());
+        file.close();
+    }
+}
+
+void Synera::loadGame(const QString& filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) return;
+
+    QByteArray data = file.readAll();
+    file.close();
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &err);
+    if (doc.isNull()) return;
+
+    QJsonObject root = doc.object();
+
+    // 清空当前状态
+    initGame();
+
+    // 恢复全局状态
+    m_gold = root["gold"].toInt(360);
+    m_currentLevel = root["currentLevel"].toInt(1);
+    m_playerHp = root["playerHp"].toInt(100);
+    m_pendingGold = root["pendingGold"].toInt(0);
+
+    // 恢复商店
+    QJsonArray shopArr = root["shop"].toArray();
+    for (int i = 0; i < shopArr.size() && i < (int)m_shop.size(); ++i)
+        m_shop[i].count = shopArr[i].toObject()["count"].toInt(0);
+
+    // 辅助：根据 type/star/hp/mana/equip 创建并初始化英雄
+    auto createHeroFromData = [&](const QJsonObject& o) -> Unit* {
+        auto t = static_cast<UnitType>(o["type"].toInt());
+        int star = o["star"].toInt(0);
+        Unit* u = createUnitFromPool(t, true, star);
+        u->setHp(o["hp"].toInt(u->getMaxHp()));
+        u->setMaxHp(o["maxHp"].toInt(u->getMaxHp()));
+        u->resetMana();
+        int mana = o["mana"].toInt(0);
+        for (int i = 0; i < mana; ++i) u->gainMana();
+        int burning = o["burning"].toInt(0);
+        if (burning > 0) u->applyBurning(burning);
+        QString equipStr = o["equip"].toString();
+        if (!equipStr.isEmpty()) {
+            auto parts = equipStr.split(' ');
+            if (parts.size() >= 2) {
+                auto w = std::make_unique<Weapon>(parts[0].toStdString(), parts[1].toInt());
+                Weapon* wp = w.get();
+                m_weapons.push_back(std::move(w));
+                u->setEquipment(wp);
+            }
+        }
+        return u;
+    };
+
+    // 恢复棋盘单位
+    QJsonArray boardArr = root["boardUnits"].toArray();
+    for (auto val : boardArr) {
+        QJsonObject o = val.toObject();
+        Unit* u = createHeroFromData(o);
+        m_board.placeUnit(u, o["x"].toInt(), o["y"].toInt());
+    }
+
+    // 恢复回收槽单位
+    QJsonArray recycleArr = root["recycleUnits"].toArray();
+    for (int i = 0; i < recycleArr.size() && i < 8; ++i) {
+        if (recycleArr[i].isNull()) continue;
+        QJsonObject o = recycleArr[i].toObject();
+        Unit* u = createHeroFromData(o);
+        int slot = o["slot"].toInt(i);
+        if (slot >= 0 && slot < 8)
+            m_recycleSlots[slot] = u;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -362,6 +586,27 @@ void Synera::renderBoard(QPainter& painter)
 // ═══════════════════════════════════════════════════════════════
 // 棋盘上的单位
 // ═══════════════════════════════════════════════════════════════
+
+static void drawStar(QPainter& painter, const QPointF& center, double radius, bool filled)
+{
+    const double pi = 3.14159265358979323846;
+    QPainterPath path;
+    int n = 5;
+    double outerR = radius;
+    double innerR = radius * 0.4;
+    for (int i = 0; i < n * 2; ++i) {
+        double angle = -pi / 2 + i * pi / n;
+        double r = (i % 2 == 0) ? outerR : innerR;
+        double px = center.x() + r * std::cos(angle);
+        double py = center.y() + r * std::sin(angle);
+        if (i == 0) path.moveTo(px, py);
+        else path.lineTo(px, py);
+    }
+    path.closeSubpath();
+    painter.setBrush(filled ? QColor(255, 210, 50) : QColor(50, 50, 60));
+    painter.setPen(QPen(filled ? QColor(200, 160, 30) : QColor(80, 80, 90), 1));
+    painter.drawPath(path);
+}
 
 static QColor typeFillColor(UnitType t, bool isHero)
 {
@@ -468,6 +713,18 @@ void Synera::renderUnits(QPainter& painter)
                 painter.drawText(ur.adjusted(3, 0, 0, 0), Qt::AlignBottom | Qt::AlignLeft,
                                  QString("[%1]").arg(QString::fromStdString(unit->getEquipment()->getName())));
             }
+
+            // 星数图标（仅英雄显示，在格子左侧）
+            if (isHero) {
+                double starR = 5.0;
+                double starSpacing = 12.0;
+                double startY = rc.center().y() - starSpacing; // 3星从上到下排列
+                double starX = rc.left() + starR + 4;
+                for (int s = 0; s < 3; ++s) {
+                    QPointF starCenter(starX, startY + s * starSpacing);
+                    drawStar(painter, starCenter, starR, s < unit->getStarLevel());
+                }
+            }
         }
     }
 }
@@ -478,14 +735,13 @@ void Synera::renderUnits(QPainter& painter)
 
 QRect Synera::shopBuyRect(int index) const
 {
-    QRect base(SHOP_X, SHOP_Y + index * (SHOP_SLOT_H + 8), SHOP_WIDTH, SHOP_SLOT_H);
-    return QRect(base.right() - 65, base.top() + 50, 60, 28);
+    return QRect(SHOP_X, SHOP_Y + index * (SHOP_SLOT_H + 8) + 4, 62, 24);
 }
 
 int Synera::findShopSlotAt(const QPoint& pixel) const
 {
     for (int i = 0; i < (int)m_shop.size(); ++i)
-        if (QRect(SHOP_X, SHOP_Y + i * (SHOP_SLOT_H + 8), SHOP_WIDTH, SHOP_SLOT_H).contains(pixel))
+        if (QRect(SHOP_X, SHOP_Y + i * (SHOP_SLOT_H + 8), SHOP_PANEL_W + SHOP_ICON_W, SHOP_SLOT_H).contains(pixel))
             return i;
     return -1;
 }
@@ -504,53 +760,49 @@ void Synera::renderShop(QPainter& painter)
     m_buyButtonRects.clear();
 
     for (int i = 0; i < (int)m_shop.size(); ++i) {
-        QRect rc(SHOP_X, SHOP_Y + i * (SHOP_SLOT_H + 8), SHOP_WIDTH, SHOP_SLOT_H);
         const PoolSlot& slot = m_shop[i];
+        int rowY = SHOP_Y + i * (SHOP_SLOT_H + 8);
 
-        // 底色
-        painter.setBrush(QColor(40, 40, 50));
-        painter.setPen(QPen(slot.count > 0 ? QColor(110, 110, 130) : QColor(60, 60, 70), 1));
-        painter.drawRoundedRect(rc, 6, 6);
+        // ── 左侧：购买按钮 + 属性面板 ──
+        QRect panelRect(SHOP_X, rowY, SHOP_PANEL_W, SHOP_SLOT_H);
+        painter.setBrush(QColor(38, 38, 48));
+        painter.setPen(QPen(QColor(70, 70, 85), 1));
+        painter.drawRoundedRect(panelRect, 5, 5);
 
-        // 角色色块
-        QRect iconRect = rc.adjusted(8, 10, -8, -45);
-        QColor fill = typeFillColor(slot.type, true);
-        painter.setBrush(fill);
-        painter.setPen(Qt::NoPen);
-        painter.drawRoundedRect(iconRect, 6, 6);
-
-        // 标签
-        painter.setPen(Qt::white);
-        QFont iconFont;
-        iconFont.setPixelSize(24);
-        iconFont.setBold(true);
-        painter.setFont(iconFont);
-        painter.drawText(iconRect, Qt::AlignCenter, typeLabel(slot.type));
-
-        // 名称 + 库存
-        const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
-        QFont infoFont;
-        infoFont.setPixelSize(11);
-        infoFont.setBold(true);
-        painter.setFont(infoFont);
-        painter.setPen(QColor(200, 200, 220));
-        QRect nameRect = rc.adjusted(8, rc.height() - 42, -8, -8);
-        painter.drawText(nameRect, Qt::AlignHCenter | Qt::AlignTop,
-                         QString("%1  x%2").arg(names[(int)slot.type]).arg(slot.count));
-
-        // 价格 + 数值
+        // 属性数据
         QFont statFont;
-        statFont.setPixelSize(9);
+        statFont.setPixelSize(8);
         painter.setFont(statFont);
-        painter.setPen(QColor(160, 160, 180));
-        QString stats;
+        painter.setPen(QColor(180, 180, 200));
+        int statX = panelRect.left() + 4;
+        int statY = panelRect.top() + 30;
+        int lineH = 12;
         switch (slot.type) {
-            case UnitType::Warrior:  stats = "HP:100 ATK:20 Spd:30/60"; break;
-            case UnitType::Mage:     stats = "HP:50  ATK:10 Spd:30/60"; break;
-            case UnitType::Support:  stats = "HP:80  Heal:20 Spd:30/60"; break;
-            case UnitType::Assassin: stats = "HP:40  ATK:50 Spd:30/40"; break;
+            case UnitType::Warrior:
+                painter.drawText(statX, statY,        "HP:100");
+                painter.drawText(statX, statY + lineH, "ATK:20");
+                painter.drawText(statX, statY + lineH*2, "Rng:1");
+                painter.drawText(statX, statY + lineH*3, "Spd:30/60");
+                break;
+            case UnitType::Mage:
+                painter.drawText(statX, statY,        "HP:50");
+                painter.drawText(statX, statY + lineH, "ATK:10");
+                painter.drawText(statX, statY + lineH*2, "Rng:4");
+                painter.drawText(statX, statY + lineH*3, "Spd:30/60");
+                break;
+            case UnitType::Support:
+                painter.drawText(statX, statY,        "HP:80");
+                painter.drawText(statX, statY + lineH, "Heal:20");
+                painter.drawText(statX, statY + lineH*2, "Rng:1");
+                painter.drawText(statX, statY + lineH*3, "Spd:30/60");
+                break;
+            case UnitType::Assassin:
+                painter.drawText(statX, statY,        "HP:15");
+                painter.drawText(statX, statY + lineH, "ATK:50");
+                painter.drawText(statX, statY + lineH*2, "Rng:1");
+                painter.drawText(statX, statY + lineH*3, "Spd:30/40");
+                break;
         }
-        painter.drawText(nameRect.adjusted(0, 14, 0, 0), Qt::AlignHCenter | Qt::AlignTop, stats);
 
         // 购买按钮
         int cost = heroCost(slot.type);
@@ -564,10 +816,42 @@ void Synera::renderShop(QPainter& painter)
 
         painter.setPen(Qt::white);
         QFont btnFont;
-        btnFont.setPixelSize(11);
+        btnFont.setPixelSize(10);
         btnFont.setBold(true);
         painter.setFont(btnFont);
         painter.drawText(btnRect, Qt::AlignCenter, QString("$%1").arg(cost));
+
+        // ── 右侧：英雄色块 + 名称 ──
+        QRect iconRect(SHOP_X + SHOP_PANEL_W + 6, rowY, SHOP_ICON_W, SHOP_SLOT_H);
+        painter.setBrush(QColor(40, 40, 50));
+        painter.setPen(QPen(slot.count > 0 ? QColor(110, 110, 130) : QColor(60, 60, 70), 1));
+        painter.drawRoundedRect(iconRect, 6, 6);
+
+        // 角色色块
+        QRect colorRect = iconRect.adjusted(6, 8, -6, -40);
+        QColor fill = typeFillColor(slot.type, true);
+        painter.setBrush(fill);
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(colorRect, 6, 6);
+
+        // 类型标签
+        painter.setPen(Qt::white);
+        QFont iconFont;
+        iconFont.setPixelSize(22);
+        iconFont.setBold(true);
+        painter.setFont(iconFont);
+        painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
+
+        // 名称 + 库存
+        const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
+        QFont nameFont;
+        nameFont.setPixelSize(10);
+        nameFont.setBold(true);
+        painter.setFont(nameFont);
+        painter.setPen(QColor(200, 200, 220));
+        QRect nameRect = iconRect.adjusted(4, iconRect.height() - 38, -4, -4);
+        painter.drawText(nameRect, Qt::AlignHCenter | Qt::AlignTop,
+                         QString("%1  x%2").arg(names[(int)slot.type]).arg(slot.count));
     }
 }
 
@@ -638,6 +922,16 @@ void Synera::renderRecycleSlots(QPainter& painter)
                 QColor hpC = ratio > 0.5 ? QColor(80, 210, 80) : ratio > 0.25 ? QColor(210, 190, 30) : QColor(210, 55, 55);
                 painter.setBrush(hpC);
                 painter.drawRoundedRect(QRect(barBg.left(), barY, (int)(barBg.width() * ratio), barH), 1, 1);
+
+                // 星数图标
+                double starR = 3.5;
+                double starSpacing = 8.0;
+                double startY = rc.center().y() - starSpacing;
+                double starX = rc.left() + starR + 3;
+                for (int s = 0; s < 3; ++s) {
+                    QPointF starCenter(starX, startY + s * starSpacing);
+                    drawStar(painter, starCenter, starR, s < u->getStarLevel());
+                }
             } else {
                 // 空槽：透明填充 + 白色边框
                 painter.setBrush(Qt::NoBrush);
@@ -849,7 +1143,7 @@ void Synera::renderUI(QPainter& painter)
     if (m_phase == GamePhase::Preparation) {
         painter.drawText(textX, helpY, "Buy heroes from shop (left)");
         painter.drawText(textX, helpY + 16, "Drag from shop / recycle to board");
-        painter.drawText(textX, helpY + 32, "Press R to full reset");
+        painter.drawText(textX, helpY + 32, "F5 Save  F9 Load  R Reset");
     } else {
         painter.drawText(textX, helpY, "Auto-combat in progress...");
         painter.drawText(textX, helpY + 16, "Press R to full reset");
@@ -991,37 +1285,99 @@ void Synera::processDrop(const QPoint& mousePos)
         return;
     }
 
-    // ── 放回回收槽 ──
+    // ── 放回回收槽 (含升星) ──
     int recycleIdx = findRecycleSlotAt(mousePos);
-    if (recycleIdx >= 0 && m_recycleSlots[recycleIdx] == nullptr) {
-        int typeIdx = static_cast<int>(m_draggedUnit->getType());
-        int slotTypeIdx = recycleIdx % 4;
-        if (typeIdx == slotTypeIdx) {
-            m_recycleSlots[recycleIdx] = m_draggedUnit;
-            m_draggedUnit = nullptr;
-            m_dragFromShopIndex = -1;
-            m_dragFromRecycleIndex = -1;
-            update();
-            return;
+    if (recycleIdx >= 0) {
+        Unit* slotUnit = m_recycleSlots[recycleIdx];
+        if (slotUnit) {
+            // Check for star-up in recycle slot
+            Hero* h1 = dynamic_cast<Hero*>(m_draggedUnit);
+            Hero* h2 = dynamic_cast<Hero*>(slotUnit);
+            if (h1 && h2
+                && m_draggedUnit->getName() == slotUnit->getName()
+                && m_draggedUnit->getStarLevel() == slotUnit->getStarLevel()
+                && m_draggedUnit->getStarLevel() < 3) {
+                int newStarLevel = m_draggedUnit->getStarLevel() + 1;
+                UnitType type = m_draggedUnit->getType();
+                m_draggedUnit->setDisappeared(true);
+                slotUnit->setDisappeared(true);
+                m_recycleSlots[recycleIdx] = nullptr;
+                Unit* newUnit = createUpgradedHero(type, newStarLevel);
+                m_recycleSlots[recycleIdx] = newUnit;
+                if (type == UnitType::Assassin) {
+                    for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
+                        newUnit->gainMana();
+                }
+                m_draggedUnit = nullptr;
+                m_dragFromShopIndex = -1;
+                m_dragFromRecycleIndex = -1;
+                update();
+                return;
+            }
+        } else {
+            int typeIdx = static_cast<int>(m_draggedUnit->getType());
+            int slotTypeIdx = recycleIdx % 4;
+            if (typeIdx == slotTypeIdx) {
+                m_recycleSlots[recycleIdx] = m_draggedUnit;
+                m_draggedUnit = nullptr;
+                m_dragFromShopIndex = -1;
+                m_dragFromRecycleIndex = -1;
+                update();
+                return;
+            }
         }
     }
 
     // ── 放到棋盘 ──
     int bestGx = -1, bestGy = -1, bestOverlap = 0;
+    int starUpGx = -1, starUpGy = -1, bestStarUpOverlap = 0;
     for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
         for (int x = 0; x < Board::SIZE; ++x) {
             QRect cr = cellRect(x, y);
             QRect inter = unitRect.intersected(cr);
             if (inter.isEmpty()) continue;
             int overlap = inter.width() * inter.height();
-            if (overlap > unitArea / 2 && overlap > bestOverlap && !m_board.isOccupied(x, y)) {
-                bestOverlap = overlap;
-                bestGx = x; bestGy = y;
+            if (overlap <= unitArea / 2) continue;
+
+            if (m_board.isOccupied(x, y)) {
+                Unit* occupant = m_board.getUnitAt(x, y);
+                if (occupant && dynamic_cast<Hero*>(occupant)
+                    && dynamic_cast<Hero*>(m_draggedUnit)
+                    && occupant->getName() == m_draggedUnit->getName()
+                    && occupant->getStarLevel() == m_draggedUnit->getStarLevel()
+                    && occupant->getStarLevel() < 3
+                    && overlap > bestStarUpOverlap) {
+                    bestStarUpOverlap = overlap;
+                    starUpGx = x; starUpGy = y;
+                }
+            } else {
+                if (overlap > bestOverlap) {
+                    bestOverlap = overlap;
+                    bestGx = x; bestGy = y;
+                }
             }
         }
     }
 
-    if (bestGx >= 0) {
+    if (starUpGx >= 0) {
+        if (tryStarUp(starUpGx, starUpGy, m_draggedUnit)) {
+            m_dragFromShopIndex = -1;
+            m_dragFromRecycleIndex = -1;
+        } else {
+            // Star-up failed — return dragged unit to source
+            if (m_dragFromShopIndex >= 0) {
+                m_shop[m_dragFromShopIndex].count++;
+                m_draggedUnit->setDisappeared(true);
+            } else if (m_dragFromRecycleIndex >= 0) {
+                m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
+            } else {
+                m_board.placeUnit(m_draggedUnit, m_draggedUnit->getPosition().x,
+                                  m_draggedUnit->getPosition().y);
+            }
+            m_dragFromShopIndex = -1;
+            m_dragFromRecycleIndex = -1;
+        }
+    } else if (bestGx >= 0) {
         m_board.placeUnit(m_draggedUnit, bestGx, bestGy);
         m_dragFromShopIndex = -1;
         m_dragFromRecycleIndex = -1;
@@ -1308,6 +1664,10 @@ void Synera::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_R) {
         initGame();
+    } else if (event->key() == Qt::Key_F5 && m_phase == GamePhase::Preparation && !m_gameOver) {
+        saveGame(SAVE_PATH);
+    } else if (event->key() == Qt::Key_F9 && m_phase == GamePhase::Preparation) {
+        loadGame(SAVE_PATH);
     }
     QMainWindow::keyPressEvent(event);
 }

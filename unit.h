@@ -66,6 +66,9 @@ public:
     virtual int getHealAmount() const { return 0; }
     virtual bool canHeal() const { return false; }
 
+    int getStarLevel() const;
+    void setStarLevel(int level);
+
     void setPosition(int x, int y);
     void setEquipment(Weapon* weapon);
     void setHp(int hp);
@@ -88,6 +91,7 @@ protected:
     Weapon* m_equipment;
     bool m_disappeared;
     UnitType m_type;
+    int m_starLevel;
     int m_mana;
     bool m_burning;
     int m_burningTurns;

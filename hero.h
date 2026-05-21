@@ -10,36 +10,47 @@ public:
 };
 
 class WarriorHero : public Hero {
+    static constexpr int BASE_HP = 100;
+    static constexpr int BASE_ATK = 20;
+    static constexpr int BASE_SKILL_DMG = 80;
 public:
-    WarriorHero(int x = 0, int y = 0);
+    WarriorHero(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 1; }
-    int getAttackDamage() const override { return 20; }
+    int getAttackDamage() const override { return BASE_ATK * (m_starLevel + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 class MageHero : public Hero {
+    static constexpr int BASE_HP = 50;
+    static constexpr int BASE_ATK = 10;
 public:
-    MageHero(int x = 0, int y = 0);
+    MageHero(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 4; }
-    int getAttackDamage() const override { return 10; }
+    int getAttackDamage() const override { return BASE_ATK * (m_starLevel + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 class SupportHero : public Hero {
+    static constexpr int BASE_HP = 80;
+    static constexpr int BASE_HEAL = 20;
+    static constexpr int BASE_SKILL_HEAL = 30;
 public:
-    SupportHero(int x = 0, int y = 0);
+    SupportHero(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 1; }
     int getAttackDamage() const override { return 0; }
-    int getHealAmount() const override { return 20; }
+    int getHealAmount() const override { return BASE_HEAL * (m_starLevel + 1); }
     bool canHeal() const override { return true; }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 class AssassinHero : public Hero {
+    static constexpr int BASE_HP = 15;
+    static constexpr int BASE_ATK = 50;
+    static constexpr int BASE_SKILL_DMG = 80;
 public:
-    AssassinHero(int x = 0, int y = 0);
+    AssassinHero(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 1; }
-    int getAttackDamage() const override { return 50; }
+    int getAttackDamage() const override { return BASE_ATK * (m_starLevel + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 

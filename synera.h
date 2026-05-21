@@ -41,7 +41,12 @@ private:
     void initLevel();
     void startBattle();
     void endLevel(bool playerWon);
-    Unit* createUnitFromPool(UnitType type, bool isHero);
+    Unit* createUnitFromPool(UnitType type, bool isHero, int starLevel = 0);
+    Unit* createUpgradedHero(UnitType type, int starLevel);
+    bool tryStarUp(int boardX, int boardY, Unit* draggedUnit);
+
+    void saveGame(const QString& filePath);
+    void loadGame(const QString& filePath);
 
     void renderBoard(QPainter& painter);
     void renderUnits(QPainter& painter);
@@ -118,7 +123,8 @@ private:
     static constexpr int SHOP_X = 10;
     static constexpr int SHOP_Y = 64;
     static constexpr int SHOP_SLOT_H = 88;
-    static constexpr int SHOP_WIDTH = 136;
+    static constexpr int SHOP_PANEL_W = 62;
+    static constexpr int SHOP_ICON_W = 70;
     static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 20;
     static constexpr int RECYCLE_SLOT_W = 56;
     static constexpr int RECYCLE_SLOT_H = 48;
