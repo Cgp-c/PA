@@ -717,7 +717,7 @@ void Synera::renderUnits(QPainter& painter)
             // 星数图标（仅英雄显示，在格子左侧）
             if (isHero) {
                 double starR = 5.0;
-                double starSpacing = 12.0;
+                double starSpacing = 14.0;
                 double startY = rc.center().y() - starSpacing; // 3星从上到下排列
                 double starX = rc.left() + starR + 4;
                 for (int s = 0; s < 3; ++s) {
@@ -1480,13 +1480,17 @@ void Synera::processCombatFrame()
                 u->resetAttackTimer();
             }
 
-            // 移动（独立计时器）
+            // 移动：优先接近受伤友方，否则靠近最近友方
             if (u->getMoveTimer() >= u->getMoveSpeed()) {
-                Unit* target = healTarget;
-                if (!target) target = findNearestEnemyFor(u);
-                if (target) {
-                    Position next = moveStepToward(pos, target->getPosition());
+                if (healTarget) {
+                    Position next = moveStepToward(pos, healTarget->getPosition());
                     if (!(next == pos)) moves.push_back({u, next});
+                } else {
+                    Unit* ally = findNearestAlly(u);
+                    if (ally) {
+                        Position next = moveStepTowardAlly(pos, ally->getPosition());
+                        if (!(next == pos)) moves.push_back({u, next});
+                    }
                 }
                 u->resetMoveTimer();
             }
@@ -1594,6 +1598,25 @@ Unit* Synera::findHealTarget(Unit* support) const
     return best;
 }
 
+Unit* Synera::findNearestAlly(Unit* unit) const
+{
+    bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
+    Unit* best = nullptr;
+    int bestDist = 999;
+
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u == unit || u->isDead() || u->isDisappeared()) continue;
+            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
+            if (uIsHero != isHero) continue;
+
+            int d = manhattanDist(unit->getPosition(), u->getPosition());
+            if (d < bestDist) { bestDist = d; best = u; }
+        }
+    return best;
+}
+
 Position Synera::moveStepToward(const Position& from, const Position& to) const
 {
     int dx = (to.x > from.x) ? 1 : (to.x < from.x) ? -1 : 0;
@@ -1612,6 +1635,28 @@ Position Synera::moveStepToward(const Position& from, const Position& to) const
     return from;
 }
 
+Position Synera::moveStepTowardAlly(const Position& from, const Position& to) const
+{
+    // 优先向右，其次向前/后，最后向左
+    if (to.x > from.x) {
+        Position next(from.x + 1, from.y);
+        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
+            return next;
+    }
+    if (to.y != from.y) {
+        int dy = (to.y > from.y) ? 1 : -1;
+        Position next(from.x, from.y + dy);
+        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
+            return next;
+    }
+    if (to.x < from.x) {
+        Position next(from.x - 1, from.y);
+        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
+            return next;
+    }
+    return from;
+}
+
 bool Synera::canAttack(Unit* attacker, Unit* target) const
 {
     return manhattanDist(attacker->getPosition(), target->getPosition())
@@ -1624,7 +1669,6 @@ bool Synera::canAttack(Unit* attacker, Unit* target) const
 
 void Synera::checkLevelEnd()
 {
-    bool hasHeroNonSupport = false, hasEnemyNonSupport = false;
     bool hasHeroAny = false, hasEnemyAny = false;
 
     for (auto& u : m_units) {
@@ -1632,27 +1676,14 @@ void Synera::checkLevelEnd()
         bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
         if (isH) {
             hasHeroAny = true;
-            if (u->getType() != UnitType::Support) hasHeroNonSupport = true;
         } else {
             hasEnemyAny = true;
-            if (u->getType() != UnitType::Support) hasEnemyNonSupport = true;
         }
     }
 
-    // 一方全员阵亡，或一方只剩辅助 → 判负
-    bool heroLost = (!hasHeroAny || !hasHeroNonSupport);
-    bool enemyLost = (!hasEnemyAny || !hasEnemyNonSupport);
-
-    if (heroLost || enemyLost) {
-        // 如果敌方只剩辅助，视为已击败这些辅助（给金币）
-        if (enemyLost) {
-            for (auto& u : m_units) {
-                if (u->isDisappeared() || u->isDead()) continue;
-                if (dynamic_cast<Enemy*>(u.get()) == nullptr) continue;
-                m_pendingGold += enemyGoldValue(u->getType());
-            }
-        }
-        endLevel(enemyLost); // enemyLost = player won
+    // 只有一方全部阵亡才结束战斗
+    if (!hasHeroAny || !hasEnemyAny) {
+        endLevel(!hasEnemyAny); // enemy all dead = player won
     }
 }
 

@@ -58,7 +58,7 @@ void WarriorHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
     }
 }
 
-// ─── 法师技能：周围 3×3 敌方全体燃烧 4 回合 ─────────────────
+// ─── 法师技能：周围 5×5 敌方全体燃烧 4 回合 ─────────────────
 
 void MageHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
@@ -68,7 +68,7 @@ void MageHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
         if (dynamic_cast<Enemy*>(u) == nullptr) continue;
         int dx = std::abs(u->getPosition().x - m_pos.x);
         int dy = std::abs(u->getPosition().y - m_pos.y);
-        if (dx <= 1 && dy <= 1) {
+        if (dx <= 2 && dy <= 2) {
             u->applyBurning(4);
         }
     }

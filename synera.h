@@ -67,7 +67,9 @@ private:
     void processBurningTick(std::vector<Unit*>& alive);
     Unit* findNearestEnemyFor(Unit* unit) const;
     Unit* findHealTarget(Unit* support) const;
+    Unit* findNearestAlly(Unit* unit) const;
     Position moveStepToward(const Position& from, const Position& to) const;
+    Position moveStepTowardAlly(const Position& from, const Position& to) const;
     bool canAttack(Unit* attacker, Unit* target) const;
     void checkLevelEnd();
 
@@ -129,7 +131,7 @@ private:
     static constexpr int RECYCLE_SLOT_W = 56;
     static constexpr int RECYCLE_SLOT_H = 48;
     static constexpr int RECYCLE_SPACING = 8;
-    static constexpr int BURNING_INTERVAL = 18;
+    static constexpr int BURNING_INTERVAL = 30;
 };
 
 #endif // SYNERA_H
