@@ -14,7 +14,7 @@ struct Position {
     }
 };
 
-enum class UnitType { Warrior, Mage, Support, Assassin };
+enum class UnitType { Warrior, Mage, Support, Assassin, Boss };
 
 inline int manhattanDist(const Position& a, const Position& b) {
     return std::abs(a.x - b.x) + std::abs(a.y - b.y);
@@ -27,7 +27,8 @@ public:
     static constexpr int MAX_MANA = 5;
 
     Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
-         int moveSpeed = 30, int attackSpeed = 60, int startMana = 0);
+         int moveSpeed = 30, int attackSpeed = 60, int startMana = 0,
+         int maxMana = MAX_MANA, int maxMana2 = 0);
     virtual ~Unit() = default;
 
     virtual void attack(Unit& target);
@@ -45,8 +46,15 @@ public:
     void gainMana();
     void resetMana();
 
+    // 第二法力值（Boss 进阶技能）
+    int getMana2() const;
+    int getMaxMana2() const;
+    void gainMana2();
+    void resetMana2();
+
     // 技能（纯虚，子类各自实现）
     virtual void useSkill(Board& board, std::vector<Unit*>& allUnits) = 0;
+    virtual void useSkill2(Board& board, std::vector<Unit*>& allUnits);
 
     // 燃烧状态
     bool isBurning() const;
@@ -93,6 +101,9 @@ protected:
     UnitType m_type;
     int m_starLevel;
     int m_mana;
+    int m_maxMana;
+    int m_mana2;
+    int m_maxMana2;
     bool m_burning;
     int m_burningTurns;
     int m_moveSpeed;

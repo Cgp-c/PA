@@ -1,7 +1,8 @@
 #include "unit.h"
 
 Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
-           int moveSpeed, int attackSpeed, int startMana)
+           int moveSpeed, int attackSpeed, int startMana,
+           int maxMana, int maxMana2)
     : m_name(name)
     , m_hp(hp)
     , m_maxHp(maxHp)
@@ -11,6 +12,9 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_type(type)
     , m_starLevel(0)
     , m_mana(startMana)
+    , m_maxMana(maxMana)
+    , m_mana2(0)
+    , m_maxMana2(maxMana2)
     , m_burning(false)
     , m_burningTurns(0)
     , m_moveSpeed(moveSpeed)
@@ -50,12 +54,27 @@ void Unit::heal(int amount)
 // ─── 法力值 ──────────────────────────────────────────────────
 
 int Unit::getMana() const { return m_mana; }
-int Unit::getMaxMana() const { return MAX_MANA; }
+int Unit::getMaxMana() const { return m_maxMana; }
 void Unit::gainMana()
 {
-    if (m_mana < MAX_MANA) ++m_mana;
+    if (m_mana < m_maxMana) ++m_mana;
 }
 void Unit::resetMana() { m_mana = 0; }
+
+// ─── 第二法力值（Boss 进阶技能）─────────────────────────────
+
+int Unit::getMana2() const { return m_mana2; }
+int Unit::getMaxMana2() const { return m_maxMana2; }
+void Unit::gainMana2()
+{
+    if (m_mana2 < m_maxMana2) ++m_mana2;
+}
+void Unit::resetMana2() { m_mana2 = 0; }
+
+void Unit::useSkill2(Board& board, std::vector<Unit*>& allUnits)
+{
+    (void)board; (void)allUnits;
+}
 
 // ─── 燃烧 ────────────────────────────────────────────────────
 

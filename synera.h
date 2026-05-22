@@ -41,7 +41,7 @@ private:
     void initLevel();
     void startBattle();
     void endLevel(bool playerWon);
-    Unit* createUnitFromPool(UnitType type, bool isHero, int starLevel = 0);
+    Unit* createUnitFromPool(UnitType type, bool isHero, int starLevel = 0, bool isBoss = false);
     Unit* createUpgradedHero(UnitType type, int starLevel);
     bool tryStarUp(int boardX, int boardY, Unit* draggedUnit);
 
@@ -65,6 +65,7 @@ private:
     // 自动战斗（每帧调用）
     void processCombatFrame();
     void processBurningTick(std::vector<Unit*>& alive);
+    void processAssassinSkills(std::vector<Unit*>& alive);
     Unit* findNearestEnemyFor(Unit* unit) const;
     Unit* findHealTarget(Unit* support) const;
     Unit* findNearestAlly(Unit* unit) const;
@@ -78,7 +79,7 @@ private:
     int   findShopSlotAt(const QPoint& pixel) const;
     int   findRecycleSlotAt(const QPoint& pixel) const;
 
-    int enemyGoldValue(UnitType t) const;
+    int enemyGoldValue(const Unit* u) const;
     int heroCost(UnitType t) const;
 
     Ui::MainWindow *ui;
@@ -98,7 +99,7 @@ private:
 
     // 关卡
     int m_currentLevel;
-    static constexpr int MAX_LEVEL = 3;
+    static constexpr int MAX_LEVEL = 5;
 
     // 玩家
     int m_playerHp;
