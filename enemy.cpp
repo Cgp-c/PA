@@ -13,34 +13,34 @@ Enemy::Enemy(const std::string& name, int hp, int maxHp, int x, int y, UnitType 
 
 WarriorEnemy::WarriorEnemy(int starLevel, int x, int y)
     : Enemy("E-Warrior", 100 * (starLevel + 1), 100 * (starLevel + 1),
-            x, y, UnitType::Warrior, 30, 60)
+            x, y, UnitType::Warrior, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 MageEnemy::MageEnemy(int starLevel, int x, int y)
     : Enemy("E-Mage", 50 * (starLevel + 1), 50 * (starLevel + 1),
-            x, y, UnitType::Mage, 30, 60)
+            x, y, UnitType::Mage, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 SupportEnemy::SupportEnemy(int starLevel, int x, int y)
     : Enemy("E-Support", 80 * (starLevel + 1), 80 * (starLevel + 1),
-            x, y, UnitType::Support, 30, 60)
+            x, y, UnitType::Support, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 AssassinEnemy::AssassinEnemy(int starLevel, int x, int y)
     : Enemy("E-Assassin", 40 * (starLevel + 1), 40 * (starLevel + 1),
-            x, y, UnitType::Assassin, 30, 40, Unit::MAX_MANA)
+            x, y, UnitType::Assassin, 60, 80, Unit::MAX_MANA)
 {
     m_starLevel = starLevel;
 }
 
 BossEnemy::BossEnemy(int x, int y)
-    : Enemy("E-Boss", 500, 500, x, y, UnitType::Boss, 60, 60, 0, 3, 5)
+    : Enemy("E-Boss", 500, 500, x, y, UnitType::Boss, 120, 120, 0, 3, 5)
 {
 }
 

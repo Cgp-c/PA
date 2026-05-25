@@ -12,28 +12,28 @@ Hero::Hero(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
 
 WarriorHero::WarriorHero(int starLevel, int x, int y)
     : Hero("A-Warrior", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
-           x, y, UnitType::Warrior, 30, 60)
+           x, y, UnitType::Warrior, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 MageHero::MageHero(int starLevel, int x, int y)
     : Hero("A-Mage", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
-           x, y, UnitType::Mage, 30, 60)
+           x, y, UnitType::Mage, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 SupportHero::SupportHero(int starLevel, int x, int y)
     : Hero("A-Support", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
-           x, y, UnitType::Support, 30, 60)
+           x, y, UnitType::Support, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 AssassinHero::AssassinHero(int starLevel, int x, int y)
     : Hero("A-Assassin", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
-           x, y, UnitType::Assassin, 30, 40, Unit::MAX_MANA)
+           x, y, UnitType::Assassin, 60, 80, Unit::MAX_MANA)
 {
     m_starLevel = starLevel;
 }

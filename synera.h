@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <vector>
+#include <map>
 #include <memory>
 #include "ui_synera.h"
 #include "board.h"
@@ -16,6 +17,21 @@ enum class GamePhase { Preparation, Battle };
 struct PoolSlot {
     UnitType type;
     int count;
+};
+
+struct HitEffect {
+    int cellX, cellY;
+    int amount;          // negative=damage, positive=heal
+    int startFrame;
+    int duration;
+    bool alive;          // true=独立悬浮文本，false=随单位消失
+};
+
+struct SlashEffect {
+    int cellX, cellY;
+    bool isSkill;        // false=attack slash, true=skill slash
+    int startFrame;
+    int duration;
 };
 
 class Synera : public QMainWindow
@@ -106,8 +122,8 @@ private:
     int m_gold;
     int m_pendingGold;                      // 本关战斗中累积金币
 
-    // 回收槽：2行 × 4类型，存指向 m_units 的裸指针
-    std::vector<Unit*> m_recycleSlots;      // 8个
+    // 回收槽：2行 × 8列
+    std::vector<Unit*> m_recycleSlots;      // 16个
 
     // 拖拽
     Unit* m_draggedUnit;
@@ -116,8 +132,18 @@ private:
     int m_dragFromRecycleIndex;             // recycle slot index (0-7)
 
     // 按钮区域
+    
     QRect m_startButtonRect;
     std::vector<QRect> m_buyButtonRects;    // 商店购买按钮
+
+    // 视觉特效
+    std::vector<HitEffect> m_hitEffects;
+    std::vector<SlashEffect> m_slashEffects;
+
+    // 伤害/治疗累积显示
+    std::map<Unit*, std::vector<int>> m_pendingDamageEvents;
+    void flushDamageEvents(const std::vector<Unit*>& alive);
+    int fastestAttackSpeed() const;
 
     static constexpr int CELL_SIZE = 64;
     static constexpr int BOARD_OFFSET_X = 160;
@@ -129,10 +155,10 @@ private:
     static constexpr int SHOP_PANEL_W = 62;
     static constexpr int SHOP_ICON_W = 70;
     static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 20;
-    static constexpr int RECYCLE_SLOT_W = 56;
+    static constexpr int RECYCLE_SLOT_W = 52;
     static constexpr int RECYCLE_SLOT_H = 48;
-    static constexpr int RECYCLE_SPACING = 8;
-    static constexpr int BURNING_INTERVAL = 30;
+    static constexpr int RECYCLE_SPACING = 4;
+    static constexpr int BURNING_INTERVAL = 60;
 };
 
 #endif // SYNERA_H

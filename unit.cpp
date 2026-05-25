@@ -24,14 +24,17 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
 {
 }
 
-void Unit::attack(Unit& target)
+int Unit::attack(Unit& target)
 {
     int damage = getAttackDamage();
     if (m_equipment)
         damage += m_equipment->getDamage();
+    int beforeHp = target.getHp();
     target.takeDamage(damage);
+    int dealt = beforeHp - target.getHp();
     if (target.isDead())
         target.setDisappeared(true);
+    return dealt;
 }
 
 bool Unit::isDead() const { return m_hp <= 0; }
@@ -45,10 +48,12 @@ void Unit::takeDamage(int damage)
 
 void Unit::setDisappeared(bool disappeared) { m_disappeared = disappeared; }
 
-void Unit::heal(int amount)
+int Unit::heal(int amount)
 {
+    int beforeHp = m_hp;
     m_hp += amount;
     if (m_hp > m_maxHp) m_hp = m_maxHp;
+    return m_hp - beforeHp;
 }
 
 // ─── 法力值 ──────────────────────────────────────────────────

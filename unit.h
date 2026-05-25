@@ -31,14 +31,14 @@ public:
          int maxMana = MAX_MANA, int maxMana2 = 0);
     virtual ~Unit() = default;
 
-    virtual void attack(Unit& target);
+    virtual int attack(Unit& target);
 
     bool isDead() const;
     bool isDisappeared() const;
 
     void takeDamage(int damage);
     void setDisappeared(bool disappeared);
-    void heal(int amount);
+    int heal(int amount);
 
     // 法力值
     int getMana() const;

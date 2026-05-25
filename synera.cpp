@@ -3,7 +3,7 @@
 #include "hero.h"
 #include "enemy.h"
 #include "weapon.h"
-
+//技能点没有保留bug，寻路索敌问题没有解决，boss寻路机制问题，商店售价+rand，伤害显示有点问题.
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -16,7 +16,6 @@
 #include <cstdlib>
 #include <cmath>
 #include <algorithm>
-#include <map>
 #include <set>
 
 // ═══════════════════════════════════════════════════════════════
@@ -35,7 +34,7 @@ Synera::Synera(QWidget *parent)
     , m_playerHp(100)
     , m_gold(1360)
     , m_pendingGold(0)
-    , m_recycleSlots(8, nullptr)
+    , m_recycleSlots(16, nullptr)
     , m_draggedUnit(nullptr)
     , m_dragFromShopIndex(-1)
     , m_dragFromRecycleIndex(-1)
@@ -76,7 +75,7 @@ void Synera::initGame()
     m_frameCounter = 0;
     m_currentLevel = 1;
     m_playerHp = 100;
-    m_gold = 360;
+    m_gold = 1360;
     m_pendingGold = 0;
 
     // 初始化商店：4 种类型，初始库存 0
@@ -104,6 +103,9 @@ void Synera::initLevel()
     m_phase = GamePhase::Preparation;
     m_frameCounter = 0;
     m_pendingGold = 0;
+    m_hitEffects.clear();
+    m_slashEffects.clear();
+    m_pendingDamageEvents.clear();
 
     // 回收槽中已死亡的清理
     for (auto& p : m_recycleSlots) {
@@ -215,7 +217,7 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
     // Mana: Assassin gets full, others start at 0
     if (type == UnitType::Assassin) {
         // Assassin starts with full mana after star-up
-        for (int i = newUnit->getMana(); i < newUnit->getMaxMana(); ++i)
+        for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
             newUnit->gainMana();
     } else {
         newUnit->resetMana();
@@ -277,6 +279,9 @@ void Synera::startBattle()
     for (auto& slot : m_shop) slot.count = 0;
 
     m_showLevelLoss = false;
+    m_hitEffects.clear();
+    m_slashEffects.clear();
+    m_pendingDamageEvents.clear();
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
 }
@@ -287,44 +292,48 @@ void Synera::startBattle()
 
 void Synera::endLevel(bool playerWon)
 {
+    // 清空战斗中的伤害/治疗显示残留
+    m_hitEffects.clear();
+    m_slashEffects.clear();
+    m_pendingDamageEvents.clear();
+
     if (playerWon) {
-        // 回收场上存活英雄 — 扫描整个棋盘（英雄可能移动到敌方半场）
+        // 收集场上存活英雄并按星数、类型排序
+        std::vector<Unit*> survivingHeroes;
         for (int y = 0; y < Board::SIZE; ++y) {
             for (int x = 0; x < Board::SIZE; ++x) {
                 Unit* u = m_board.getUnitAt(x, y);
                 if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
                 if (u->isDead() || u->isDisappeared()) continue;
-
-                // 治疗 20，清空技能条
-                u->heal(20);
-                u->resetMoveTimer();
-                u->resetAttackTimer();
-
-                // 放入对应类型的回收槽（优先第一行），类型槽满则用任意空槽
-                int typeIdx = static_cast<int>(u->getType());
-                bool placed = false;
-                for (int row = 0; row < 2; ++row) {
-                    int slotIdx = row * 4 + typeIdx;
-                    if (m_recycleSlots[slotIdx] == nullptr) {
-                        m_recycleSlots[slotIdx] = u;
-                        placed = true;
-                        break;
-                    }
-                }
-                if (!placed) {
-                    for (int i = 0; i < 8; ++i) {
-                        if (m_recycleSlots[i] == nullptr) {
-                            m_recycleSlots[i] = u;
-                            placed = true;
-                            break;
-                        }
-                    }
-                }
-                if (placed)
-                    m_board.removeUnit(x, y);
-                else
-                    u->setDisappeared(true);
+                survivingHeroes.push_back(u);
             }
+        }
+
+        // 排序：星数高优先，同星按类型：战士>法师>辅助>刺客
+        std::sort(survivingHeroes.begin(), survivingHeroes.end(),
+            [](Unit* a, Unit* b) {
+                if (a->getStarLevel() != b->getStarLevel())
+                    return a->getStarLevel() > b->getStarLevel();
+                return static_cast<int>(a->getType()) < static_cast<int>(b->getType());
+            });
+
+        for (Unit* u : survivingHeroes) {
+            u->heal(20);
+            u->resetMoveTimer();
+            u->resetAttackTimer();
+
+            bool placed = false;
+            for (int i = 0; i < 16; ++i) {
+                if (m_recycleSlots[i] == nullptr) {
+                    m_recycleSlots[i] = u;
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed)
+                m_board.removeUnit(u->getPosition().x, u->getPosition().y);
+            else
+                u->setDisappeared(true);
         }
         m_gold += m_pendingGold;
         m_gold += 100; // 基础通关金币
@@ -430,9 +439,6 @@ void Synera::saveGame(const QString& filePath)
             bu["hp"] = u->getHp();
             bu["maxHp"] = u->getMaxHp();
             bu["mana"] = u->getMana();
-            bu["maxMana"] = u->getMaxMana();
-            bu["mana2"] = u->getMana2();
-            bu["maxMana2"] = u->getMaxMana2();
             bu["burning"] = u->getBurningTurns();
             if (u->getEquipment())
                 bu["equip"] = QString("%1 %2").arg(QString::fromStdString(u->getEquipment()->getName()))
@@ -444,7 +450,7 @@ void Synera::saveGame(const QString& filePath)
 
     // 回收槽中的英雄
     QJsonArray recycleArr;
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 16; ++i) {
         Unit* u = m_recycleSlots[i];
         if (!u || u->isDead() || u->isDisappeared()) {
             recycleArr.append(QJsonValue::Null);
@@ -457,9 +463,6 @@ void Synera::saveGame(const QString& filePath)
         ru["hp"] = u->getHp();
         ru["maxHp"] = u->getMaxHp();
         ru["mana"] = u->getMana();
-        ru["maxMana"] = u->getMaxMana();
-        ru["mana2"] = u->getMana2();
-        ru["maxMana2"] = u->getMaxMana2();
         ru["burning"] = u->getBurningTurns();
         if (u->getEquipment())
             ru["equip"] = QString("%1 %2").arg(QString::fromStdString(u->getEquipment()->getName()))
@@ -470,6 +473,8 @@ void Synera::saveGame(const QString& filePath)
 
     QJsonDocument doc(root);
     QFile file(filePath);
+    if (file.exists())
+        file.remove();
     if (file.open(QIODevice::WriteOnly)) {
         file.write(doc.toJson());
         file.close();
@@ -514,9 +519,6 @@ void Synera::loadGame(const QString& filePath)
         u->resetMana();
         int mana = o["mana"].toInt(0);
         for (int i = 0; i < mana; ++i) u->gainMana();
-        u->resetMana2();
-        int mana2 = o["mana2"].toInt(0);
-        for (int i = 0; i < mana2; ++i) u->gainMana2();
         int burning = o["burning"].toInt(0);
         if (burning > 0) u->applyBurning(burning);
         QString equipStr = o["equip"].toString();
@@ -542,12 +544,12 @@ void Synera::loadGame(const QString& filePath)
 
     // 恢复回收槽单位
     QJsonArray recycleArr = root["recycleUnits"].toArray();
-    for (int i = 0; i < recycleArr.size() && i < 8; ++i) {
+    for (int i = 0; i < recycleArr.size() && i < 16; ++i) {
         if (recycleArr[i].isNull()) continue;
         QJsonObject o = recycleArr[i].toObject();
         Unit* u = createHeroFromData(o);
         int slot = o["slot"].toInt(i);
-        if (slot >= 0 && slot < 8)
+        if (slot >= 0 && slot < 16)
             m_recycleSlots[slot] = u;
     }
 }
@@ -629,6 +631,8 @@ static void drawStar(QPainter& painter, const QPointF& center, double radius, bo
     const double pi = 3.14159265358979323846;
     QPainterPath path;
     int n = 5;
+
+
     double outerR = radius;
     double innerR = radius * 0.4;
     for (int i = 0; i < n * 2; ++i) {
@@ -652,7 +656,6 @@ static QColor typeFillColor(UnitType t, bool isHero)
         case UnitType::Mage:     return isHero ? QColor(130, 80, 210)  : QColor(100, 55, 170);
         case UnitType::Support:  return isHero ? QColor(55, 170, 100)  : QColor(40, 140, 70);
         case UnitType::Assassin: return isHero ? QColor(200, 180, 40)  : QColor(160, 140, 20);
-        case UnitType::Boss:     return QColor(180, 30, 30);
     }
     return QColor(128, 128, 128);
 }
@@ -664,7 +667,6 @@ static QString typeLabel(UnitType t)
         case UnitType::Mage:     return QString::fromUtf8("\346\263\225"); // 法
         case UnitType::Support:  return QString::fromUtf8("\350\276\205"); // 辅
         case UnitType::Assassin: return QString::fromUtf8("\345\210\272"); // 刺
-        case UnitType::Boss:     return "B";
     }
     return "?";
 }
@@ -729,36 +731,18 @@ void Synera::renderUnits(QPainter& painter)
             painter.drawText(barBg, Qt::AlignCenter,
                              QString("%1/%2").arg(unit->getHp()).arg(unit->getMaxHp()));
 
-            // 法力值圆点（第一行）
+            // 法力值圆点
             int dotR = 4;
             int dotSpacing = 10;
-            int maxMana = unit->getMaxMana();
             int dotY = barBg.top() - dotR - 3;
-            if (unit->getMaxMana2() > 0)
-                dotY -= dotR + 2;  // 为第二行让出空间
-            int totalDotW = maxMana * dotSpacing - (dotSpacing - dotR * 2);
+            int totalDotW = Unit::MAX_MANA * dotSpacing - (dotSpacing - dotR * 2);
             int dotStartX = ur.center().x() - totalDotW / 2;
-            for (int iDot = 0; iDot < maxMana; ++iDot) {
+            for (int iDot = 0; iDot < Unit::MAX_MANA; ++iDot) {
                 int cx = dotStartX + iDot * dotSpacing;
                 bool filled = (iDot < unit->getMana());
                 painter.setBrush(filled ? QColor(240, 240, 240) : QColor(60, 60, 60));
                 painter.setPen(QPen(QColor(150, 150, 150), 1));
                 painter.drawEllipse(QPoint(cx, dotY), dotR, dotR);
-            }
-
-            // 第二法力值圆点（Boss 进阶技能条）
-            if (unit->getMaxMana2() > 0) {
-                int dotY2 = barBg.top() - dotR - 3;
-                int maxM2 = unit->getMaxMana2();
-                int totalDotW2 = maxM2 * dotSpacing - (dotSpacing - dotR * 2);
-                int dotStartX2 = ur.center().x() - totalDotW2 / 2;
-                for (int iDot = 0; iDot < maxM2; ++iDot) {
-                    int cx = dotStartX2 + iDot * dotSpacing;
-                    bool filled = (iDot < unit->getMana2());
-                    painter.setBrush(filled ? QColor(255, 140, 60) : QColor(60, 60, 60));
-                    painter.setPen(QPen(QColor(180, 100, 40), 1));
-                    painter.drawEllipse(QPoint(cx, dotY2), dotR, dotR);
-                }
             }
 
             // 装备
@@ -781,6 +765,25 @@ void Synera::renderUnits(QPainter& painter)
                     QPointF starCenter(starX, startY + s * starSpacing);
                     drawStar(painter, starCenter, starR, s < unit->getStarLevel());
                 }
+            }
+
+            // 伤害/治疗浮动文本（右上角）
+            int hitOffsetY = 0;
+            for (auto& he : m_hitEffects) {
+                if (he.cellX != x || he.cellY != y) continue;
+                if (!he.alive) continue;
+                QColor hitColor = he.amount >= 0 ? QColor(80, 255, 80) : QColor(255, 80, 80);
+                QString hitText = he.amount >= 0
+                    ? QString("+%1").arg(he.amount)
+                    : QString("-%1").arg(-he.amount);
+                painter.setPen(hitColor);
+                QFont hitFont;
+                hitFont.setPixelSize(11);
+                hitFont.setBold(true);
+                painter.setFont(hitFont);
+                QRect hitRect(rc.right() - 32, rc.top() - 2 + hitOffsetY, 36, 14);
+                painter.drawText(hitRect, Qt::AlignRight | Qt::AlignTop, hitText);
+                hitOffsetY += 14;
             }
         }
     }
@@ -839,25 +842,25 @@ void Synera::renderShop(QPainter& painter)
                 painter.drawText(statX, statY,        "HP:100");
                 painter.drawText(statX, statY + lineH, "ATK:20");
                 painter.drawText(statX, statY + lineH*2, "Rng:1");
-                painter.drawText(statX, statY + lineH*3, "Spd:30/60");
+                painter.drawText(statX, statY + lineH*3, "Spd:60/120");
                 break;
             case UnitType::Mage:
                 painter.drawText(statX, statY,        "HP:50");
                 painter.drawText(statX, statY + lineH, "ATK:10");
                 painter.drawText(statX, statY + lineH*2, "Rng:4");
-                painter.drawText(statX, statY + lineH*3, "Spd:30/60");
+                painter.drawText(statX, statY + lineH*3, "Spd:60/120");
                 break;
             case UnitType::Support:
                 painter.drawText(statX, statY,        "HP:80");
                 painter.drawText(statX, statY + lineH, "Heal:20");
                 painter.drawText(statX, statY + lineH*2, "Rng:1");
-                painter.drawText(statX, statY + lineH*3, "Spd:30/60");
+                painter.drawText(statX, statY + lineH*3, "Spd:60/120");
                 break;
             case UnitType::Assassin:
                 painter.drawText(statX, statY,        "HP:15");
                 painter.drawText(statX, statY + lineH, "ATK:50");
                 painter.drawText(statX, statY + lineH*2, "Rng:1");
-                painter.drawText(statX, statY + lineH*3, "Spd:30/40");
+                painter.drawText(statX, statY + lineH*3, "Spd:60/80");
                 break;
         }
 
@@ -918,7 +921,7 @@ void Synera::renderShop(QPainter& painter)
 
 QRect Synera::recycleSlotRect(int row, int col) const
 {
-    int totalW = 4 * RECYCLE_SLOT_W + 3 * RECYCLE_SPACING;
+    int totalW = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
     int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
     return QRect(startX + col * (RECYCLE_SLOT_W + RECYCLE_SPACING),
                  RECYCLE_Y + row * (RECYCLE_SLOT_H + 8),
@@ -928,15 +931,15 @@ QRect Synera::recycleSlotRect(int row, int col) const
 int Synera::findRecycleSlotAt(const QPoint& pixel) const
 {
     for (int row = 0; row < 2; ++row)
-        for (int col = 0; col < 4; ++col)
+        for (int col = 0; col < 8; ++col)
             if (recycleSlotRect(row, col).contains(pixel))
-                return row * 4 + col;
+                return row * 8 + col;
     return -1;
 }
 
 void Synera::renderRecycleSlots(QPainter& painter)
 {
-    int totalW = 4 * RECYCLE_SLOT_W + 3 * RECYCLE_SPACING;
+    int totalW = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
     int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
 
     // 标题常驻
@@ -948,9 +951,9 @@ void Synera::renderRecycleSlots(QPainter& painter)
     painter.drawText(startX, RECYCLE_Y - 8, "Recycle");
 
     for (int row = 0; row < 2; ++row) {
-        for (int col = 0; col < 4; ++col) {
+        for (int col = 0; col < 8; ++col) {
             QRect rc = recycleSlotRect(row, col);
-            int idx = row * 4 + col;
+            int idx = row * 8 + col;
             Unit* u = m_recycleSlots[idx];
 
             if (u) {
@@ -1146,9 +1149,8 @@ void Synera::renderUI(QPainter& painter)
         {QString::fromUtf8("\342\227\217 Enemy Mage"),     typeFillColor(UnitType::Mage, false)},
         {QString::fromUtf8("\342\227\217 Enemy Support"),  typeFillColor(UnitType::Support, false)},
         {QString::fromUtf8("\342\227\217 Enemy Assassin"), typeFillColor(UnitType::Assassin, false)},
-        {QString::fromUtf8("\342\227\217 Enemy Boss"),     typeFillColor(UnitType::Boss, false)},
     };
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < 8; ++i) {
         painter.setPen(legend[i].color);
         painter.drawText(textX + 8, legendY + 20 + i * 18, legend[i].label);
     }
@@ -1170,13 +1172,11 @@ void Synera::renderUI(QPainter& painter)
         if (u->isDisappeared() || u->isDead()) continue;
         bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
         painter.setPen(isH ? QColor(100, 170, 255) : QColor(240, 100, 100));
-        QString info = QString("%1  HP:%2/%3  MP:%4/%5")
+        QString info = QString("%1  HP:%2/%3  MP:%4/%5  (%6,%7)")
             .arg(QString::fromStdString(u->getName()))
             .arg(u->getHp()).arg(u->getMaxHp())
-            .arg(u->getMana()).arg(u->getMaxMana());
-        if (u->getMaxMana2() > 0)
-            info += QString("  MP2:%1/%2").arg(u->getMana2()).arg(u->getMaxMana2());
-        info += QString("  (%1,%2)").arg(u->getPosition().x).arg(u->getPosition().y);
+            .arg(u->getMana()).arg(u->getMaxMana())
+            .arg(u->getPosition().x).arg(u->getPosition().y);
         painter.drawText(textX + 8, unitListY, info);
         unitListY += 16;
     }
@@ -1365,7 +1365,7 @@ void Synera::processDrop(const QPoint& mousePos)
                 Unit* newUnit = createUpgradedHero(type, newStarLevel);
                 m_recycleSlots[recycleIdx] = newUnit;
                 if (type == UnitType::Assassin) {
-                    for (int i = newUnit->getMana(); i < newUnit->getMaxMana(); ++i)
+                    for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
                         newUnit->gainMana();
                 }
                 m_draggedUnit = nullptr;
@@ -1375,16 +1375,12 @@ void Synera::processDrop(const QPoint& mousePos)
                 return;
             }
         } else {
-            int typeIdx = static_cast<int>(m_draggedUnit->getType());
-            int slotTypeIdx = recycleIdx % 4;
-            if (typeIdx == slotTypeIdx) {
-                m_recycleSlots[recycleIdx] = m_draggedUnit;
-                m_draggedUnit = nullptr;
-                m_dragFromShopIndex = -1;
-                m_dragFromRecycleIndex = -1;
-                update();
-                return;
-            }
+            m_recycleSlots[recycleIdx] = m_draggedUnit;
+            m_draggedUnit = nullptr;
+            m_dragFromShopIndex = -1;
+            m_dragFromRecycleIndex = -1;
+            update();
+            return;
         }
     }
 
@@ -1481,197 +1477,111 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
 
 void Synera::processAssassinSkills(std::vector<Unit*>& alive)
 {
-    // 收集所有法力值满的刺客
-    std::vector<Unit*> assassins;
+    // 收集有技能且范围内有敌方的刺客
+    std::vector<Unit*> skillAssassins;
     for (Unit* u : alive) {
         if (u->isDead() || u->isDisappeared()) continue;
-        if (u->getType() == UnitType::Assassin && u->getMana() >= u->getMaxMana())
-            assassins.push_back(u);
-    }
-    if (assassins.empty()) return;
-
-    // 为每个刺客寻找目标（曼哈顿距离 ≤ 2 的最近敌方）
-    std::map<Unit*, Unit*> targetMap;  // assassin -> target
-    for (Unit* a : assassins) {
-        bool aIsHero = dynamic_cast<Hero*>(a) != nullptr;
-        Unit* best = nullptr;
-        int bestDist = 999;
-        for (Unit* u : alive) {
-            if (u == a || u->isDead() || u->isDisappeared()) continue;
-            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
-            if (uIsHero == aIsHero) continue;
-            int d = manhattanDist(a->getPosition(), u->getPosition());
-            if (d <= 2 && d < bestDist) { bestDist = d; best = u; }
+        if (u->getType() != UnitType::Assassin) continue;
+        if (u->getMana() < u->getMaxMana()) continue;
+        bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+        bool hasTarget = false;
+        for (Unit* eu : alive) {
+            if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
+            bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+            if (euIsHero == isHero) continue;
+            if (manhattanDist(u->getPosition(), eu->getPosition()) <= 2) {
+                hasTarget = true; break;
+            }
         }
-        if (best) targetMap[a] = best;
+        if (hasTarget) skillAssassins.push_back(u);
     }
+    if (skillAssassins.empty()) return;
 
-    // ── 第一步：互相摧毁检查 ──
-    // 如果刺客 A 锁定刺客 B（B 也有技能），两人同归于尽
-    std::set<Unit*> killed;
-    for (Unit* a : assassins) {
-        if (killed.count(a)) continue;
-        auto it = targetMap.find(a);
-        if (it == targetMap.end()) continue;
-        Unit* t = it->second;
-        // t 也是刺客且也有技能
-        if (t->getType() == UnitType::Assassin && t->getMana() >= t->getMaxMana()
-            && !killed.count(t)) {
-            killed.insert(a);
-            killed.insert(t);
-            // 移除棋盘
-            m_board.removeUnit(a->getPosition().x, a->getPosition().y);
-            m_board.removeUnit(t->getPosition().x, t->getPosition().y);
-            a->setDisappeared(true);
-            t->setDisappeared(true);
-            if (dynamic_cast<Enemy*>(a)) m_pendingGold += enemyGoldValue(a);
-            if (dynamic_cast<Enemy*>(t)) m_pendingGold += enemyGoldValue(t);
+    std::set<Unit*> deadSet;
+
+    for (Unit* assassin : skillAssassins) {
+        if (deadSet.count(assassin)) continue;
+        if (assassin->isDead() || assassin->isDisappeared()) continue;
+
+        bool isHero = dynamic_cast<Hero*>(assassin) != nullptr;
+        int dmg = static_cast<int>(80 * (1 + assassin->getStarLevel() * 0.5));
+        Position ap = assassin->getPosition();
+
+        // 索敌：绝对距离最近，横向距离破平
+        Unit* target = nullptr;
+        int bestDistSq = 999999, bestXDist = 999;
+        for (Unit* eu : alive) {
+            if (eu == assassin || eu->isDead() || eu->isDisappeared()) continue;
+            if (deadSet.count(eu)) continue;
+            bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+            if (euIsHero == isHero) continue;
+            if (manhattanDist(ap, eu->getPosition()) > 2) continue;
+            int dx = ap.x - eu->getPosition().x;
+            int dy = ap.y - eu->getPosition().y;
+            int distSq = dx * dx + dy * dy;
+            int xDist = std::abs(dx);
+            if (distSq < bestDistSq || (distSq == bestDistSq && xDist < bestXDist)) {
+                bestDistSq = distSq; bestXDist = xDist; target = eu;
+            }
         }
-    }
+        if (!target) continue; // 无有效目标，保留技能点
 
-    // 从刺客列表移除已死亡者
-    std::vector<Unit*> active;
-    for (Unit* a : assassins)
-        if (!killed.count(a)) active.push_back(a);
-    if (active.empty()) return;
-
-    // 重新索敌（部分目标可能已被杀）
-    targetMap.clear();
-    for (Unit* a : active) {
-        bool aIsHero = dynamic_cast<Hero*>(a) != nullptr;
-        Unit* best = nullptr;
-        int bestDist = 999;
-        for (Unit* u : alive) {
-            if (u == a || u->isDead() || u->isDisappeared()) continue;
-            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
-            if (uIsHero == aIsHero) continue;
-            int d = manhattanDist(a->getPosition(), u->getPosition());
-            if (d <= 2 && d < bestDist) { bestDist = d; best = u; }
-        }
-        if (best) targetMap[a] = best;
-    }
-
-    // ── 第二步：按目标分组、分配瞬移位置 ──
-    // 位置优先级：下(0,1) > 左(-1,0) > 右(1,0) > 上(0,-1)
-    static const int dx[] = {0, -1, 1, 0};
-    static const int dy[] = {1, 0, 0, -1};
-
-    // target -> vector of (assassin, assignedPosition)
-    std::map<Unit*, std::vector<std::pair<Unit*, Position>>> targetGroups;
-    // assassin -> assigned position
-    std::map<Unit*, Position> assignedPos;
-
-    for (Unit* a : active) {
-        auto it = targetMap.find(a);
-        if (it == targetMap.end()) continue;
-        Unit* t = it->second;
-
-        auto& group = targetGroups[t];
-        int slotIdx = (int)group.size();
-        if (slotIdx >= 4) continue;  // 最多 4 个
-
-        // 尝试按优先级找一个合法位置
-        bool found = false;
-        for (int trySlot = slotIdx; trySlot < 4; ++trySlot) {
-            int nx = t->getPosition().x + dx[trySlot];
-            int ny = t->getPosition().y + dy[trySlot];
-            if (!m_board.isValidPosition(nx, ny)) continue;
-            // 检查是否被其他已分配的瞬移位置占用
-            bool occupied = m_board.isOccupied(nx, ny);
-            if (!occupied) {
-                for (auto& kv : targetGroups) {
-                    for (auto& p : kv.second) {
-                        if (p.second.x == nx && p.second.y == ny) { occupied = true; break; }
-                    }
-                    if (occupied) break;
+        // 互杀检测：目标也是有技能的刺客
+        bool mutualKill = false;
+        if (target->getType() == UnitType::Assassin && target->getMana() >= target->getMaxMana()) {
+            for (Unit* sa : skillAssassins) {
+                if (sa == target && !deadSet.count(target)) {
+                    mutualKill = true; break;
                 }
             }
-            if (!occupied) {
-                Position dest(nx, ny);
-                group.push_back({a, dest});
-                assignedPos[a] = dest;
-                found = true;
-                break;
-            }
-        }
-        // 找不到合法位置 → 本轮不使用技能
-    }
-
-    // ── 第三步：按组顺序执行技能 ──
-    // 记录哪些刺客成功使用了技能（用于后续跳过主循环的技能检查）
-    for (Unit* a : active) {
-        if (!a || a->isDead() || a->isDisappeared()) continue;
-
-        auto posIt = assignedPos.find(a);
-        if (posIt == assignedPos.end()) continue;  // 没有合法位置
-
-        // 找到目标
-        Unit* t = nullptr;
-        for (auto& kv : targetGroups) {
-            for (auto& p : kv.second) {
-                if (p.first == a) { t = kv.first; break; }
-            }
-            if (t) break;
-        }
-        if (!t || t->isDead() || t->isDisappeared()) {
-            // 目标已死，尝试重新索敌
-            bool aIsHero = dynamic_cast<Hero*>(a) != nullptr;
-            Unit* newTarget = nullptr;
-            int bestDist = 999;
-            for (Unit* u : alive) {
-                if (u == a || u->isDead() || u->isDisappeared()) continue;
-                bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
-                if (uIsHero == aIsHero) continue;
-                int d = manhattanDist(a->getPosition(), u->getPosition());
-                if (d <= 2 && d < bestDist) { bestDist = d; newTarget = u; }
-            }
-            if (!newTarget) continue;  // 无目标，本轮不用技能
-
-            // 为新目标找位置
-            Position newPos;
-            bool found = false;
-            for (int trySlot = 0; trySlot < 4; ++trySlot) {
-                int nx = newTarget->getPosition().x + dx[trySlot];
-                int ny = newTarget->getPosition().y + dy[trySlot];
-                if (!m_board.isValidPosition(nx, ny)) continue;
-                if (!m_board.isOccupied(nx, ny)) {
-                    newPos = Position(nx, ny);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) continue;
-            t = newTarget;
-            assignedPos[a] = newPos;
         }
 
-        Position dest = assignedPos[a];
-        // 检查目标位置是否仍可用
-        if (m_board.isOccupied(dest.x, dest.y) && m_board.getUnitAt(dest.x, dest.y) != a)
+        if (mutualKill) {
+            deadSet.insert(assassin);
+            deadSet.insert(target);
+            bool aEnemy = dynamic_cast<Enemy*>(assassin) != nullptr;
+            bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
+            if (aEnemy) m_pendingGold += enemyGoldValue(assassin);
+            if (tEnemy) m_pendingGold += enemyGoldValue(target);
+            m_pendingDamageEvents[assassin].push_back(-assassin->getHp());
+            m_pendingDamageEvents[target].push_back(-target->getHp());
+            assassin->takeDamage(assassin->getHp());
+            target->takeDamage(target->getHp());
+            assassin->resetMana();
+            target->resetMana();
+            m_board.removeUnit(ap.x, ap.y);
+            m_board.removeUnit(target->getPosition().x, target->getPosition().y);
             continue;
-
-        // 执行瞬移
-        m_board.removeUnit(a->getPosition().x, a->getPosition().y);
-        m_board.placeUnit(a, dest.x, dest.y);
-
-        // 造成伤害
-        int dmg = static_cast<int>(80 * (1 + a->getStarLevel() * 0.5));
-        t->takeDamage(dmg);
-        if (t->isDead()) {
-            if (dynamic_cast<Enemy*>(t))
-                m_pendingGold += enemyGoldValue(t);
-            m_board.removeUnit(t->getPosition().x, t->getPosition().y);
         }
 
-        // 技能使用完毕
-        a->resetMana();
-        a->resetMoveTimer();
-        a->resetAttackTimer();
+        // 对目标造成伤害
+        int beforeHp = target->getHp();
+        target->takeDamage(dmg);
+        int dealt = beforeHp - target->getHp();
+        m_pendingDamageEvents[target].push_back(-dealt);
+        assassin->resetMana();
+
+        if (target->isDead()) {
+            deadSet.insert(target);
+            bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
+            if (tEnemy) m_pendingGold += enemyGoldValue(target);
+            m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+        }
     }
 }
 
 void Synera::processCombatFrame()
 {
+    // 清理过期特效
+    m_hitEffects.erase(
+        std::remove_if(m_hitEffects.begin(), m_hitEffects.end(),
+            [this](const HitEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_hitEffects.end());
+    m_slashEffects.erase(
+        std::remove_if(m_slashEffects.begin(), m_slashEffects.end(),
+            [this](const SlashEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_slashEffects.end());
+
     struct Move { Unit* unit; Position to; };
     std::vector<Move> moves;
 
@@ -1685,11 +1595,13 @@ void Synera::processCombatFrame()
         }
 
     // 燃烧伤害（每 BURNING_INTERVAL 帧）
-    if (m_frameCounter % BURNING_INTERVAL == 0)
+    bool burningFrame = (m_frameCounter % BURNING_INTERVAL == 0);
+    if (burningFrame)
         processBurningTick(alive);
 
-    // 刺客技能预处理（仅次于燃烧伤害的优先级）
-    processAssassinSkills(alive);
+    // 燃烧结算后立刻处理刺客技能
+    if (burningFrame)
+        processAssassinSkills(alive);
 
     for (Unit* u : alive) {
         if (u->isDead() || u->isDisappeared()) continue;
@@ -1697,48 +1609,75 @@ void Synera::processCombatFrame()
 
         u->incrementTimers();
 
-        bool isAssassin = (u->getType() == UnitType::Assassin);
+        // ── 法力值满 → 释放技能（刺客由 processAssassinSkills 统一处理）──
+        if (u->getMana() >= u->getMaxMana() && u->getType() != UnitType::Assassin) {
+            bool hasValidTarget = false;
+            bool isSupport = u->canHeal();
 
-        // ── 法力值满 → 释放技能（刺客已在预处理中尝试，跳过）──
-        if (!isAssassin && u->getMana() >= u->getMaxMana()) {
-            std::vector<Unit*> enemiesBeforeSkill;
-            for (Unit* eu : alive) {
-                if (!eu->isDead() && !eu->isDisappeared()
-                    && dynamic_cast<Enemy*>(eu) != nullptr)
-                    enemiesBeforeSkill.push_back(eu);
+            if (isSupport) {
+                bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+                for (Unit* au : alive) {
+                    if (au == u || au->isDead() || au->isDisappeared()) continue;
+                    bool auIsHero = dynamic_cast<Hero*>(au) != nullptr;
+                    if (auIsHero != isHero) continue;
+                    if (au->getHp() < au->getMaxHp()) { hasValidTarget = true; break; }
+                }
+            } else if (u->getType() == UnitType::Mage) {
+                // 法师技能需周围有敌方（英雄5×5，敌方3×3）
+                bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+                int range = isHero ? 2 : 1;
+                for (Unit* eu : alive) {
+                    if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
+                    bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+                    if (euIsHero == isHero) continue;
+                    int dx = std::abs(u->getPosition().x - eu->getPosition().x);
+                    int dy = std::abs(u->getPosition().y - eu->getPosition().y);
+                    if (dx <= range && dy <= range) { hasValidTarget = true; break; }
+                }
+            } else {
+                bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+                for (Unit* eu : alive) {
+                    if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
+                    bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+                    if (euIsHero != isHero) { hasValidTarget = true; break; }
+                }
             }
 
-            u->useSkill(m_board, alive);
-            u->resetMana();
-            u->resetMoveTimer();
-            u->resetAttackTimer();
+            if (!hasValidTarget) {
+                // 无有效目标，保留技能点，继续移动/攻击
+            } else {
+                // 记录技能前 HP
+                std::map<Unit*, int> hpBefore;
+                for (Unit* au : alive) {
+                    if (!au->isDead() && !au->isDisappeared())
+                        hpBefore[au] = au->getHp();
+                }
 
-            for (Unit* eu : enemiesBeforeSkill) {
-                if (eu->isDead())
-                    m_pendingGold += enemyGoldValue(eu);
+                std::vector<Unit*> enemiesBeforeSkill;
+                for (Unit* eu : alive) {
+                    if (!eu->isDead() && !eu->isDisappeared()
+                        && dynamic_cast<Enemy*>(eu) != nullptr)
+                        enemiesBeforeSkill.push_back(eu);
+                }
+
+                u->useSkill(m_board, alive);
+                u->resetMana();
+                u->resetMoveTimer();
+                u->resetAttackTimer();
+
+                for (auto& kv : hpBefore) {
+                    if (kv.first->isDead() || kv.first->isDisappeared()) continue;
+                    int diff = kv.first->getHp() - kv.second;
+                    if (diff != 0)
+                        m_pendingDamageEvents[kv.first].push_back(diff);
+                }
+
+                for (Unit* eu : enemiesBeforeSkill) {
+                    if (eu->isDead())
+                        m_pendingGold += enemyGoldValue(eu);
+                }
+                continue;
             }
-            continue;
-        }
-
-        // ── 第二法力值满 → 释放进阶技能（Boss）──
-        if (u->getMaxMana2() > 0 && u->getMana2() >= u->getMaxMana2()) {
-            std::vector<Unit*> enemiesBeforeSkill;
-            for (Unit* eu : alive) {
-                if (!eu->isDead() && !eu->isDisappeared()
-                    && dynamic_cast<Enemy*>(eu) != nullptr)
-                    enemiesBeforeSkill.push_back(eu);
-            }
-
-            u->useSkill2(m_board, alive);
-            u->resetMana2();
-            u->resetMoveTimer();
-            u->resetAttackTimer();
-
-            for (Unit* eu : enemiesBeforeSkill) {
-                if (eu->isDead())
-                    m_pendingGold += enemyGoldValue(eu);
-            }
-            continue;
         }
 
         if (u->canHeal()) {
@@ -1748,9 +1687,9 @@ void Synera::processCombatFrame()
 
             // 治疗（独立计时器）
             if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
-                healTarget->heal(u->getHealAmount());
+                int healed = healTarget->heal(u->getHealAmount());
+                m_pendingDamageEvents[healTarget].push_back(healed);
                 u->gainMana();
-                if (u->getMaxMana2() > 0) u->gainMana2();
                 u->resetAttackTimer();
             } else if (!inRange) {
                 u->resetAttackTimer();
@@ -1778,9 +1717,9 @@ void Synera::processCombatFrame()
 
                 // 攻击（独立计时器）
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
-                    u->attack(*target);
+                    int dealt = u->attack(*target);
                     u->gainMana();
-                    if (u->getMaxMana2() > 0) u->gainMana2();
+                    m_pendingDamageEvents[target].push_back(-dealt);
 
                     if (target->isDead()) {
                         bool isEnemy = dynamic_cast<Enemy*>(target) != nullptr;
@@ -1810,7 +1749,62 @@ void Synera::processCombatFrame()
         m_board.placeUnit(m.unit, m.to.x, m.to.y);
     }
 
+    // 刷新收集到的全部单位（含移动后新位置）
+    alive.clear();
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (u && !u->isDead() && !u->isDisappeared())
+                alive.push_back(u);
+        }
+    flushDamageEvents(alive);
+
     checkLevelEnd();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 伤害显示辅助
+// ═══════════════════════════════════════════════════════════════
+
+int Synera::fastestAttackSpeed() const
+{
+    int fastest = 999;
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (u && !u->isDead() && !u->isDisappeared()) {
+                if (u->getAttackSpeed() < fastest)
+                    fastest = u->getAttackSpeed();
+            }
+        }
+    return (fastest == 999) ? 60 : fastest;
+}
+
+void Synera::flushDamageEvents(const std::vector<Unit*>& alive)
+{
+    if (m_pendingDamageEvents.empty()) return;
+    int fastAtk = fastestAttackSpeed();
+
+    for (auto& kv : m_pendingDamageEvents) {
+        Unit* u = kv.first;
+        if (u->isDead() || u->isDisappeared()) continue;
+        int count = (int)kv.second.size();
+        if (count == 0) continue;
+        int duration = fastAtk / count - 3;
+        if (duration < 0) duration = 0;
+
+        for (int amt : kv.second) {
+            m_hitEffects.push_back({
+                u->getPosition().x,
+                u->getPosition().y,
+                amt,
+                m_frameCounter,
+                duration,
+                true
+            });
+        }
+    }
+    m_pendingDamageEvents.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1821,7 +1815,8 @@ Unit* Synera::findNearestEnemyFor(Unit* unit) const
 {
     bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
     Unit* best = nullptr;
-    int bestDist = 999;
+    int bestDistSq = 999999;
+    int bestXDist = 999;
 
     for (int y = 0; y < Board::SIZE; ++y)
         for (int x = 0; x < Board::SIZE; ++x) {
@@ -1830,8 +1825,16 @@ Unit* Synera::findNearestEnemyFor(Unit* unit) const
             bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
             if (uIsHero == isHero) continue;
 
-            int d = manhattanDist(unit->getPosition(), u->getPosition());
-            if (d < bestDist) { bestDist = d; best = u; }
+            int dx = unit->getPosition().x - u->getPosition().x;
+            int dy = unit->getPosition().y - u->getPosition().y;
+            int distSq = dx * dx + dy * dy;
+            int xDist = std::abs(dx);
+
+            if (distSq < bestDistSq || (distSq == bestDistSq && xDist < bestXDist)) {
+                bestDistSq = distSq;
+                bestXDist = xDist;
+                best = u;
+            }
         }
     return best;
 }
@@ -1840,7 +1843,7 @@ Unit* Synera::findHealTarget(Unit* support) const
 {
     bool isHero = dynamic_cast<Hero*>(support) != nullptr;
     Unit* best = nullptr;
-    int bestDist = 999;
+    int bestDistSq = 999999;
     UnitType bestType = UnitType::Support;
     int bestXDist = 999;
 
@@ -1852,12 +1855,14 @@ Unit* Synera::findHealTarget(Unit* support) const
             bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
             if (uIsHero != isHero) continue;
 
-            int d = manhattanDist(support->getPosition(), u->getPosition());
-            int xd = std::abs(support->getPosition().x - u->getPosition().x);
+            int dx = support->getPosition().x - u->getPosition().x;
+            int dy = support->getPosition().y - u->getPosition().y;
+            int distSq = dx * dx + dy * dy;
+            int xd = std::abs(dx);
 
             bool better = false;
-            if (d < bestDist) better = true;
-            else if (d == bestDist) {
+            if (distSq < bestDistSq) better = true;
+            else if (distSq == bestDistSq) {
                 int tr = (u->getType() == UnitType::Warrior) ? 0 :
                          (u->getType() == UnitType::Mage) ? 1 :
                          (u->getType() == UnitType::Assassin) ? 2 : 3;
@@ -1869,7 +1874,7 @@ Unit* Synera::findHealTarget(Unit* support) const
             }
 
             if (better) {
-                best = u; bestDist = d; bestType = u->getType(); bestXDist = xd;
+                best = u; bestDistSq = distSq; bestType = u->getType(); bestXDist = xd;
             }
         }
     return best;
@@ -1879,7 +1884,8 @@ Unit* Synera::findNearestAlly(Unit* unit) const
 {
     bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
     Unit* best = nullptr;
-    int bestDist = 999;
+    int bestDistSq = 999999;
+    int bestXDist = 999;
 
     for (int y = 0; y < Board::SIZE; ++y)
         for (int x = 0; x < Board::SIZE; ++x) {
@@ -1888,8 +1894,16 @@ Unit* Synera::findNearestAlly(Unit* unit) const
             bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
             if (uIsHero != isHero) continue;
 
-            int d = manhattanDist(unit->getPosition(), u->getPosition());
-            if (d < bestDist) { bestDist = d; best = u; }
+            int dx = unit->getPosition().x - u->getPosition().x;
+            int dy = unit->getPosition().y - u->getPosition().y;
+            int distSq = dx * dx + dy * dy;
+            int xDist = std::abs(dx);
+
+            if (distSq < bestDistSq || (distSq == bestDistSq && xDist < bestXDist)) {
+                bestDistSq = distSq;
+                bestXDist = xDist;
+                best = u;
+            }
         }
     return best;
 }
