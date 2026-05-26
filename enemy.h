@@ -14,7 +14,7 @@ class WarriorEnemy : public Enemy {
 public:
     WarriorEnemy(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 1; }
-    int getAttackDamage() const override { return 20 * (m_starLevel + 1); }
+    int getAttackDamage() const override { return 20 * (m_starLevel / 2 + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
@@ -22,16 +22,16 @@ class MageEnemy : public Enemy {
 public:
     MageEnemy(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 4; }
-    int getAttackDamage() const override { return 10 * (m_starLevel + 1); }
+    int getAttackDamage() const override { return 10 * (m_starLevel / 2 + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
 class SupportEnemy : public Enemy {
 public:
     SupportEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return 1; }
+    int getAttackRange() const override { return 2; }
     int getAttackDamage() const override { return 0; }
-    int getHealAmount() const override { return 20 * (m_starLevel + 1); }
+    int getHealAmount() const override { return 20 * (m_starLevel / 2 + 1); }
     bool canHeal() const override { return true; }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
@@ -40,7 +40,7 @@ class AssassinEnemy : public Enemy {
 public:
     AssassinEnemy(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 1; }
-    int getAttackDamage() const override { return 50 * (m_starLevel + 1); }
+    int getAttackDamage() const override { return 50 * (m_starLevel / 2 + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 

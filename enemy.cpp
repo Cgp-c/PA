@@ -12,28 +12,28 @@ Enemy::Enemy(const std::string& name, int hp, int maxHp, int x, int y, UnitType 
 }
 
 WarriorEnemy::WarriorEnemy(int starLevel, int x, int y)
-    : Enemy("E-Warrior", 100 * (starLevel + 1), 100 * (starLevel + 1),
+    : Enemy("E-Warrior", 100 * (starLevel / 2 + 1), 100 * (starLevel / 2 + 1),
             x, y, UnitType::Warrior, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 MageEnemy::MageEnemy(int starLevel, int x, int y)
-    : Enemy("E-Mage", 50 * (starLevel + 1), 50 * (starLevel + 1),
+    : Enemy("E-Mage", 50 * (starLevel / 2 + 1), 50 * (starLevel / 2 + 1),
             x, y, UnitType::Mage, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 SupportEnemy::SupportEnemy(int starLevel, int x, int y)
-    : Enemy("E-Support", 80 * (starLevel + 1), 80 * (starLevel + 1),
+    : Enemy("E-Support", 80 * (starLevel / 2 + 1), 80 * (starLevel / 2 + 1),
             x, y, UnitType::Support, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 AssassinEnemy::AssassinEnemy(int starLevel, int x, int y)
-    : Enemy("E-Assassin", 40 * (starLevel + 1), 40 * (starLevel + 1),
+    : Enemy("E-Assassin", 15 * (starLevel / 2 + 1), 15 * (starLevel / 2 + 1),
             x, y, UnitType::Assassin, 60, 80, Unit::MAX_MANA)
 {
     m_starLevel = starLevel;
@@ -48,7 +48,7 @@ BossEnemy::BossEnemy(int x, int y)
 
 void WarriorEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
-    int dmg = static_cast<int>(80 * (1 + m_starLevel * 0.5));
+    int dmg = static_cast<int>(80 * (1 + (m_starLevel / 2) * 0.5));
     Unit* best = nullptr;
     int bestDist = 999;
     for (Unit* u : allUnits) {
@@ -64,7 +64,7 @@ void WarriorEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
     }
 }
 
-// ─── 法师技能：周围 3×3 英雄全体燃烧 4 回合 ─────────────────
+// ─── 法师技能：周围 5×5 英雄全体燃烧 4 回合 ─────────────────
 
 void MageEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
@@ -74,7 +74,7 @@ void MageEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
         if (dynamic_cast<Hero*>(u) == nullptr) continue;
         int dx = std::abs(u->getPosition().x - m_pos.x);
         int dy = std::abs(u->getPosition().y - m_pos.y);
-        if (dx <= 1 && dy <= 1) {
+        if (dx <= 2 && dy <= 2) {
             u->applyBurning(4);
         }
     }
@@ -85,7 +85,7 @@ void MageEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
 void SupportEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
     (void)board;
-    int healAmt = static_cast<int>(30 * (1 + m_starLevel * 0.5));
+    int healAmt = static_cast<int>(30 * (1 + (m_starLevel / 2) * 0.5));
     std::vector<Unit*> sorted = allUnits;
     std::sort(sorted.begin(), sorted.end(), [](Unit* a, Unit* b) {
         return a->getHp() < b->getHp();
@@ -102,7 +102,7 @@ void SupportEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
 
 void AssassinEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
-    int dmg = static_cast<int>(80 * (1 + m_starLevel * 0.5));
+    int dmg = static_cast<int>(80 * (1 + (m_starLevel / 2) * 0.5));
     Unit* best = nullptr;
     int bestDist = 999;
     for (Unit* u : allUnits) {

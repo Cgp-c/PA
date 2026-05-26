@@ -3,7 +3,6 @@
 #include "hero.h"
 #include "enemy.h"
 #include "weapon.h"
-//技能点没有保留bug，寻路索敌问题没有解决，boss寻路机制问题，商店售价+rand，伤害显示有点问题.
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -38,6 +37,7 @@ Synera::Synera(QWidget *parent)
     , m_draggedUnit(nullptr)
     , m_dragFromShopIndex(-1)
     , m_dragFromRecycleIndex(-1)
+    , m_populationCap(5)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
@@ -77,15 +77,21 @@ void Synera::initGame()
     m_playerHp = 100;
     m_gold = 1360;
     m_pendingGold = 0;
+    m_populationCap = 5;
 
-    // 初始化商店：4 种类型，初始库存 0
+    // 初始化英雄信息面板：4 种类型
     m_shop.clear();
     m_shop.push_back({UnitType::Warrior, 0});
     m_shop.push_back({UnitType::Mage, 0});
     m_shop.push_back({UnitType::Support, 0});
     m_shop.push_back({UnitType::Assassin, 0});
 
-    m_buyButtonRects.clear();
+    m_recruitRects.clear();
+    m_recruitSlots.clear();
+    for (int i = 0; i < 5; ++i)
+        m_recruitSlots.push_back({UnitType::Warrior, 0, true});
+
+    refreshRecruitment();
 }
 
 void Synera::initLevel()
@@ -106,6 +112,8 @@ void Synera::initLevel()
     m_hitEffects.clear();
     m_slashEffects.clear();
     m_pendingDamageEvents.clear();
+
+    refreshRecruitment();
 
     // 回收槽中已死亡的清理
     for (auto& p : m_recycleSlots) {
@@ -129,6 +137,19 @@ int Synera::heroCost(UnitType t) const
     return 0;
 }
 
+void Synera::refreshRecruitment()
+{
+    UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
+    for (auto& slot : m_recruitSlots) {
+        slot.type = types[std::rand() % 4];
+        int base = heroCost(slot.type);
+        int fluctuation = 5 * (std::rand() % 5) * ((std::rand() % 3) - 1);
+        slot.price = base + fluctuation;
+        if (slot.price < 1) slot.price = 1;
+        slot.empty = false;
+    }
+}
+
 int Synera::enemyGoldValue(const Unit* u) const
 {
     int base = 0;
@@ -139,7 +160,7 @@ int Synera::enemyGoldValue(const Unit* u) const
         case UnitType::Assassin: base = 30; break;
         case UnitType::Boss:     base = 200; break;
     }
-    return base * (u->getStarLevel() + 1);
+    return base * (u->getStarLevel() / 2 + 1);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -190,15 +211,16 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
     Hero* h2 = dynamic_cast<Hero*>(targetUnit);
     if (!h1 || !h2) return false;
 
-    // Same name and same star level
+    // Same name and same full-star level (starLevel/2)
     if (draggedUnit->getName() != targetUnit->getName()) return false;
-    int starLv = draggedUnit->getStarLevel();
-    if (starLv != targetUnit->getStarLevel()) return false;
+    int starLv1 = draggedUnit->getStarLevel();
+    int starLv2 = targetUnit->getStarLevel();
+    if (starLv1 / 2 != starLv2 / 2) return false;
 
-    // Max star level is 3
-    if (starLv >= 3) return false;
+    // Max half-star level is 6 (3 full stars)
+    if (starLv1 >= 6 || starLv2 >= 6) return false;
 
-    int newStarLevel = starLv + 1;
+    int newStarLevel = std::max(starLv1, starLv2) + 1; // +half star
     UnitType type = draggedUnit->getType();
 
     // Remove target from board; dragged unit is already detached from its source
@@ -216,7 +238,6 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
 
     // Mana: Assassin gets full, others start at 0
     if (type == UnitType::Assassin) {
-        // Assassin starts with full mana after star-up
         for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
             newUnit->gainMana();
     } else {
@@ -260,7 +281,7 @@ void Synera::startBattle()
         UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
         for (int i = 0; i < 4; ++i) {
             for (int c = 0; c < 2; ++c) {
-                Unit* eu = createUnitFromPool(types[i], false, 2);
+                Unit* eu = createUnitFromPool(types[i], false, 4);
                 placeRandom(eu);
             }
         }
@@ -268,15 +289,12 @@ void Synera::startBattle()
         // 关卡 5：每种类型各 1 个 3 星敌方 + 1 个 Boss
         UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
         for (int i = 0; i < 4; ++i) {
-            Unit* eu = createUnitFromPool(types[i], false, 3);
+            Unit* eu = createUnitFromPool(types[i], false, 6);
             placeRandom(eu);
         }
-        Unit* boss = createUnitFromPool(UnitType::Boss, false, 3, true);
+        Unit* boss = createUnitFromPool(UnitType::Boss, false, 6, true);
         placeRandom(boss);
     }
-
-    // 清空商店池中未使用的单位
-    for (auto& slot : m_shop) slot.count = 0;
 
     m_showLevelLoss = false;
     m_hitEffects.clear();
@@ -335,6 +353,10 @@ void Synera::endLevel(bool playerWon)
             else
                 u->setDisappeared(true);
         }
+        // 金币利息（若有下一关，未使用金币变1.5倍）
+        if (m_currentLevel < MAX_LEVEL)
+            m_gold = static_cast<int>(m_gold * 1.5);
+
         m_gold += m_pendingGold;
         m_gold += 100; // 基础通关金币
     } else {
@@ -411,13 +433,15 @@ void Synera::saveGame(const QString& filePath)
     root["currentLevel"] = m_currentLevel;
     root["playerHp"] = m_playerHp;
     root["pendingGold"] = m_pendingGold;
+    root["populationCap"] = m_populationCap;
 
-    // 商店库存
+    // 招募区
     QJsonArray shopArr;
-    for (auto& slot : m_shop) {
+    for (int i = 0; i < (int)m_recruitSlots.size(); ++i) {
         QJsonObject s;
-        s["type"] = static_cast<int>(slot.type);
-        s["count"] = slot.count;
+        s["type"] = static_cast<int>(m_recruitSlots[i].type);
+        s["price"] = m_recruitSlots[i].price;
+        s["empty"] = m_recruitSlots[i].empty;
         shopArr.append(s);
     }
     root["shop"] = shopArr;
@@ -503,11 +527,16 @@ void Synera::loadGame(const QString& filePath)
     m_currentLevel = root["currentLevel"].toInt(1);
     m_playerHp = root["playerHp"].toInt(100);
     m_pendingGold = root["pendingGold"].toInt(0);
+    m_populationCap = root["populationCap"].toInt(5);
 
-    // 恢复商店
+    // 恢复招募区
     QJsonArray shopArr = root["shop"].toArray();
-    for (int i = 0; i < shopArr.size() && i < (int)m_shop.size(); ++i)
-        m_shop[i].count = shopArr[i].toObject()["count"].toInt(0);
+    for (int i = 0; i < shopArr.size() && i < (int)m_recruitSlots.size(); ++i) {
+        QJsonObject so = shopArr[i].toObject();
+        m_recruitSlots[i].type = static_cast<UnitType>(so["type"].toInt(0));
+        m_recruitSlots[i].price = so["price"].toInt(heroCost(m_recruitSlots[i].type));
+        m_recruitSlots[i].empty = so["empty"].toBool(false);
+    }
 
     // 辅助：根据 type/star/hp/mana/equip 创建并初始化英雄
     auto createHeroFromData = [&](const QJsonObject& o) -> Unit* {
@@ -586,7 +615,8 @@ void Synera::paintEvent(QPaintEvent *event)
     renderBoard(painter);
     renderRecycleSlots(painter);
     renderUnits(painter);
-    renderShop(painter);
+    renderHeroInfo(painter);
+    renderRecruitment(painter);
     renderDragGhost(painter);
     renderUI(painter);
 }
@@ -626,12 +656,12 @@ void Synera::renderBoard(QPainter& painter)
 // 棋盘上的单位
 // ═══════════════════════════════════════════════════════════════
 
-static void drawStar(QPainter& painter, const QPointF& center, double radius, bool filled)
+static void drawStar(QPainter& painter, const QPointF& center, double radius, int fillMode)
 {
+    // fillMode: 0=empty, 1=half, 2=full
     const double pi = 3.14159265358979323846;
     QPainterPath path;
     int n = 5;
-
 
     double outerR = radius;
     double innerR = radius * 0.4;
@@ -644,9 +674,27 @@ static void drawStar(QPainter& painter, const QPointF& center, double radius, bo
         else path.lineTo(px, py);
     }
     path.closeSubpath();
-    painter.setBrush(filled ? QColor(255, 210, 50) : QColor(50, 50, 60));
-    painter.setPen(QPen(filled ? QColor(200, 160, 30) : QColor(80, 80, 90), 1));
-    painter.drawPath(path);
+
+    if (fillMode == 2) {
+        painter.setBrush(QColor(255, 210, 50));
+        painter.setPen(QPen(QColor(200, 160, 30), 1));
+        painter.drawPath(path);
+    } else if (fillMode == 1) {
+        // clip to left half
+        painter.save();
+        QPainterPath clipPath;
+        clipPath.addRect(QRectF(center.x() - radius, center.y() - radius,
+                                radius, radius * 2));
+        painter.setClipPath(clipPath, Qt::IntersectClip);
+        painter.setBrush(QColor(255, 210, 50));
+        painter.setPen(QPen(QColor(200, 160, 30), 1));
+        painter.drawPath(path);
+        painter.restore();
+    } else {
+        painter.setBrush(QColor(50, 50, 60));
+        painter.setPen(QPen(QColor(80, 80, 90), 1));
+        painter.drawPath(path);
+    }
 }
 
 static QColor typeFillColor(UnitType t, bool isHero)
@@ -759,11 +807,15 @@ void Synera::renderUnits(QPainter& painter)
             if (isHero) {
                 double starR = 5.0;
                 double starSpacing = 14.0;
-                double startY = rc.center().y() - starSpacing; // 3星从上到下排列
+                double startY = rc.center().y() - starSpacing;
                 double starX = rc.left() + starR + 4;
+                int halfStars = unit->getStarLevel();
                 for (int s = 0; s < 3; ++s) {
                     QPointF starCenter(starX, startY + s * starSpacing);
-                    drawStar(painter, starCenter, starR, s < unit->getStarLevel());
+                    int mode = 0;
+                    if (s < halfStars / 2) mode = 2;
+                    else if (s == halfStars / 2 && halfStars % 2 == 1) mode = 1;
+                    drawStar(painter, starCenter, starR, mode);
                 }
             }
 
@@ -790,129 +842,208 @@ void Synera::renderUnits(QPainter& painter)
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 商店 (左侧)
+// 英雄信息面板 (左侧，只读)
 // ═══════════════════════════════════════════════════════════════
 
-QRect Synera::shopBuyRect(int index) const
+QRect Synera::recruitSlotRect(int index) const
 {
-    return QRect(SHOP_X, SHOP_Y + index * (SHOP_SLOT_H + 8) + 4, 62, 24);
+    return QRect(LEFT_PANEL_X, RECRUIT_START_Y + index * (RECRUIT_SLOT_H + RECRUIT_SPACING),
+                 LEFT_PANEL_W, RECRUIT_SLOT_H);
 }
 
-int Synera::findShopSlotAt(const QPoint& pixel) const
+int Synera::findRecruitSlotAt(const QPoint& pixel) const
 {
-    for (int i = 0; i < (int)m_shop.size(); ++i)
-        if (QRect(SHOP_X, SHOP_Y + i * (SHOP_SLOT_H + 8), SHOP_PANEL_W + SHOP_ICON_W, SHOP_SLOT_H).contains(pixel))
+    for (int i = 0; i < (int)m_recruitSlots.size(); ++i)
+        if (recruitSlotRect(i).contains(pixel))
             return i;
     return -1;
 }
 
-void Synera::renderShop(QPainter& painter)
+void Synera::renderHeroInfo(QPainter& painter)
 {
     if (m_phase != GamePhase::Preparation) return;
 
+    // 标题
     QFont titleFont;
-    titleFont.setPixelSize(13);
+    titleFont.setPixelSize(12);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(180, 180, 200));
-    painter.drawText(SHOP_X, SHOP_Y - 12, "Shop");
-
-    m_buyButtonRects.clear();
+    painter.drawText(LEFT_PANEL_X, BOARD_OFFSET_Y - 12, "Hero Info");
 
     for (int i = 0; i < (int)m_shop.size(); ++i) {
         const PoolSlot& slot = m_shop[i];
-        int rowY = SHOP_Y + i * (SHOP_SLOT_H + 8);
+        int rowY = INFO_PANEL_Y + i * (INFO_PANEL_H + INFO_SPACING);
 
-        // ── 左侧：购买按钮 + 属性面板 ──
-        QRect panelRect(SHOP_X, rowY, SHOP_PANEL_W, SHOP_SLOT_H);
-        painter.setBrush(QColor(38, 38, 48));
-        painter.setPen(QPen(QColor(70, 70, 85), 1));
-        painter.drawRoundedRect(panelRect, 5, 5);
+        QRect panelRect(LEFT_PANEL_X, rowY, LEFT_PANEL_W, INFO_PANEL_H);
+        painter.setBrush(QColor(34, 34, 44));
+        painter.setPen(QPen(QColor(60, 60, 75), 1));
+        painter.drawRoundedRect(panelRect, 4, 4);
 
-        // 属性数据
-        QFont statFont;
-        statFont.setPixelSize(8);
-        painter.setFont(statFont);
-        painter.setPen(QColor(180, 180, 200));
-        int statX = panelRect.left() + 4;
-        int statY = panelRect.top() + 30;
-        int lineH = 12;
-        switch (slot.type) {
-            case UnitType::Warrior:
-                painter.drawText(statX, statY,        "HP:100");
-                painter.drawText(statX, statY + lineH, "ATK:20");
-                painter.drawText(statX, statY + lineH*2, "Rng:1");
-                painter.drawText(statX, statY + lineH*3, "Spd:60/120");
-                break;
-            case UnitType::Mage:
-                painter.drawText(statX, statY,        "HP:50");
-                painter.drawText(statX, statY + lineH, "ATK:10");
-                painter.drawText(statX, statY + lineH*2, "Rng:4");
-                painter.drawText(statX, statY + lineH*3, "Spd:60/120");
-                break;
-            case UnitType::Support:
-                painter.drawText(statX, statY,        "HP:80");
-                painter.drawText(statX, statY + lineH, "Heal:20");
-                painter.drawText(statX, statY + lineH*2, "Rng:1");
-                painter.drawText(statX, statY + lineH*3, "Spd:60/120");
-                break;
-            case UnitType::Assassin:
-                painter.drawText(statX, statY,        "HP:15");
-                painter.drawText(statX, statY + lineH, "ATK:50");
-                painter.drawText(statX, statY + lineH*2, "Rng:1");
-                painter.drawText(statX, statY + lineH*3, "Spd:60/80");
-                break;
-        }
-
-        // 购买按钮
-        int cost = heroCost(slot.type);
-        QRect btnRect = shopBuyRect(i);
-        m_buyButtonRects.push_back(btnRect);
-
-        bool canBuy = (m_gold >= cost);
-        painter.setBrush(canBuy ? QColor(55, 130, 55) : QColor(65, 65, 65));
-        painter.setPen(QPen(canBuy ? QColor(90, 200, 90) : QColor(100, 100, 100), 1));
-        painter.drawRoundedRect(btnRect, 4, 4);
-
-        painter.setPen(Qt::white);
-        QFont btnFont;
-        btnFont.setPixelSize(10);
-        btnFont.setBold(true);
-        painter.setFont(btnFont);
-        painter.drawText(btnRect, Qt::AlignCenter, QString("$%1").arg(cost));
-
-        // ── 右侧：英雄色块 + 名称 ──
-        QRect iconRect(SHOP_X + SHOP_PANEL_W + 6, rowY, SHOP_ICON_W, SHOP_SLOT_H);
-        painter.setBrush(QColor(40, 40, 50));
-        painter.setPen(QPen(slot.count > 0 ? QColor(110, 110, 130) : QColor(60, 60, 70), 1));
-        painter.drawRoundedRect(iconRect, 6, 6);
-
-        // 角色色块
-        QRect colorRect = iconRect.adjusted(6, 8, -6, -40);
+        // 类型色块 + 标签
+        QRect colorRect(panelRect.left() + 4, panelRect.top() + 4, 22, 22);
         QColor fill = typeFillColor(slot.type, true);
         painter.setBrush(fill);
         painter.setPen(Qt::NoPen);
-        painter.drawRoundedRect(colorRect, 6, 6);
+        painter.drawRoundedRect(colorRect, 3, 3);
 
-        // 类型标签
         painter.setPen(Qt::white);
         QFont iconFont;
-        iconFont.setPixelSize(22);
+        iconFont.setPixelSize(12);
         iconFont.setBold(true);
         painter.setFont(iconFont);
         painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
 
-        // 名称 + 库存
+        // 名称
         const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
         QFont nameFont;
-        nameFont.setPixelSize(10);
+        nameFont.setPixelSize(9);
         nameFont.setBold(true);
         painter.setFont(nameFont);
         painter.setPen(QColor(200, 200, 220));
-        QRect nameRect = iconRect.adjusted(4, iconRect.height() - 38, -4, -4);
-        painter.drawText(nameRect, Qt::AlignHCenter | Qt::AlignTop,
-                         QString("%1  x%2").arg(names[(int)slot.type]).arg(slot.count));
+        painter.drawText(colorRect.right() + 6, panelRect.top() + 14, names[(int)slot.type]);
+
+        // 属性数据（8px 字体）
+        QFont statFont;
+        statFont.setPixelSize(8);
+        painter.setFont(statFont);
+        painter.setPen(QColor(170, 170, 190));
+        int sx = panelRect.left() + 6;
+        int sy = panelRect.top() + 28;
+        int lh = 11;
+        int baseCost = heroCost(slot.type);
+        switch (slot.type) {
+            case UnitType::Warrior:
+                painter.drawText(sx, sy,        "HP:100  ATK:20");
+                painter.drawText(sx, sy + lh,   "Rng:1  Spd:60/120");
+                break;
+            case UnitType::Mage:
+                painter.drawText(sx, sy,        "HP:50  ATK:10");
+                painter.drawText(sx, sy + lh,   "Rng:4  Spd:60/120");
+                break;
+            case UnitType::Support:
+                painter.drawText(sx, sy,        "HP:80  Heal:20");
+                painter.drawText(sx, sy + lh,   "Rng:2  Spd:60/120");
+                break;
+            case UnitType::Assassin:
+                painter.drawText(sx, sy,        "HP:15  ATK:50");
+                painter.drawText(sx, sy + lh,   "Rng:1  Spd:60/80");
+                break;
+        }
+        painter.setPen(QColor(255, 210, 50));
+        painter.drawText(sx, sy + lh * 2, QString("Base: $%1").arg(baseCost));
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 招募区 (左侧信息面板下方)
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderRecruitment(QPainter& painter)
+{
+    if (m_phase != GamePhase::Preparation) return;
+
+    int titleY = RECRUIT_START_Y - 22;
+
+    // 标题
+    QFont titleFont;
+    titleFont.setPixelSize(12);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(180, 180, 200));
+    painter.drawText(LEFT_PANEL_X, titleY, "Recruit");
+
+    // 刷新按钮（标题右侧）
+    int refreshW = 62, refreshH = 18;
+    QRect refreshRect(LEFT_PANEL_X + LEFT_PANEL_W - refreshW, titleY - 14, refreshW, refreshH);
+    m_refreshButtonRect = refreshRect;
+
+    bool canRefresh = (m_gold >= 15);
+    painter.setBrush(canRefresh ? QColor(55, 110, 55) : QColor(55, 55, 55));
+    painter.setPen(QPen(canRefresh ? QColor(80, 180, 80) : QColor(90, 90, 90), 1));
+    painter.drawRoundedRect(refreshRect, 3, 3);
+
+    painter.setPen(canRefresh ? Qt::white : QColor(150, 150, 150));
+    QFont rfFont;
+    rfFont.setPixelSize(9);
+    rfFont.setBold(true);
+    painter.setFont(rfFont);
+    painter.drawText(refreshRect, Qt::AlignCenter, "Refresh $15");
+
+    // 招募槽
+    m_recruitRects.clear();
+    for (int i = 0; i < (int)m_recruitSlots.size(); ++i) {
+        const RecruitSlot& slot = m_recruitSlots[i];
+        QRect rc = recruitSlotRect(i);
+        m_recruitRects.push_back(rc);
+
+        if (slot.empty) {
+            painter.setBrush(QColor(30, 30, 38));
+            painter.setPen(QPen(QColor(55, 55, 65), 1));
+            painter.drawRoundedRect(rc, 4, 4);
+            painter.setPen(QColor(100, 100, 110));
+            QFont emptyFont;
+            emptyFont.setPixelSize(10);
+            painter.setFont(emptyFont);
+            painter.drawText(rc, Qt::AlignCenter, "- empty -");
+        } else {
+            painter.setBrush(QColor(38, 38, 48));
+            painter.setPen(QPen(QColor(70, 70, 85), 1));
+            painter.drawRoundedRect(rc, 4, 4);
+
+            // 角色色块
+            QRect colorRect(rc.left() + 4, rc.top() + 4, 28, rc.height() - 8);
+            QColor fill = typeFillColor(slot.type, true);
+            painter.setBrush(fill);
+            painter.setPen(Qt::NoPen);
+            painter.drawRoundedRect(colorRect, 4, 4);
+
+            // 类型标签
+            painter.setPen(Qt::white);
+            QFont iconFont;
+            iconFont.setPixelSize(14);
+            iconFont.setBold(true);
+            painter.setFont(iconFont);
+            painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
+
+            // 名称
+            const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
+            QFont nameFont;
+            nameFont.setPixelSize(9);
+            nameFont.setBold(true);
+            painter.setFont(nameFont);
+            painter.setPen(QColor(200, 200, 220));
+            painter.drawText(colorRect.right() + 6, rc.top() + 14, names[(int)slot.type]);
+
+            // 价格（右侧）
+            bool canBuy = (m_gold >= slot.price);
+            painter.setPen(canBuy ? QColor(80, 220, 80) : QColor(200, 80, 80));
+            QFont priceFont;
+            priceFont.setPixelSize(10);
+            priceFont.setBold(true);
+            painter.setFont(priceFont);
+            QRect priceRect(rc.right() - 55, rc.top(), 50, rc.height());
+            painter.drawText(priceRect, Qt::AlignRight | Qt::AlignVCenter, QString("$%1").arg(slot.price));
+        }
+    }
+
+    // 人口上限升级按钮（招募区下方）
+    int popBtnY = RECRUIT_START_Y + 5 * (RECRUIT_SLOT_H + RECRUIT_SPACING) + 8;
+    int popCost = 100 * (m_populationCap - 4);
+    QRect popBtnRect(LEFT_PANEL_X, popBtnY, 80, 26);
+    m_popUpgradeButtonRect = popBtnRect;
+
+    bool canBuyPop = (m_gold >= popCost);
+    painter.setBrush(canBuyPop ? QColor(45, 80, 130) : QColor(55, 55, 55));
+    painter.setPen(QPen(canBuyPop ? QColor(80, 150, 220) : QColor(90, 90, 90), 1));
+    painter.drawRoundedRect(popBtnRect, 4, 4);
+
+    painter.setPen(canBuyPop ? Qt::white : QColor(150, 150, 150));
+    QFont popBtnFont;
+    popBtnFont.setPixelSize(10);
+    popBtnFont.setBold(true);
+    painter.setFont(popBtnFont);
+    painter.drawText(popBtnRect, Qt::AlignCenter, QString("Pop+ $%1").arg(popCost));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -988,9 +1119,13 @@ void Synera::renderRecycleSlots(QPainter& painter)
                 double starSpacing = 8.0;
                 double startY = rc.center().y() - starSpacing;
                 double starX = rc.left() + starR + 3;
+                int halfStars = u->getStarLevel();
                 for (int s = 0; s < 3; ++s) {
                     QPointF starCenter(starX, startY + s * starSpacing);
-                    drawStar(painter, starCenter, starR, s < u->getStarLevel());
+                    int mode = 0;
+                    if (s < halfStars / 2) mode = 2;
+                    else if (s == halfStars / 2 && halfStars % 2 == 1) mode = 1;
+                    drawStar(painter, starCenter, starR, mode);
                 }
             } else {
                 // 空槽：透明填充 + 白色边框
@@ -1067,6 +1202,16 @@ void Synera::renderUI(QPainter& painter)
     painter.setFont(infoFont);
     QString goldText = QString("Gold: %1").arg(m_gold);
     painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE - 100, infoY, goldText);
+
+    // 人口 - 金币右侧
+    int boardHeroCount = countBoardHeroes();
+    painter.setPen(QColor(160, 200, 255));
+    QFont popFont;
+    popFont.setPixelSize(14);
+    popFont.setBold(true);
+    painter.setFont(popFont);
+    QString popText = QString("Pop: %1/%2").arg(boardHeroCount).arg(m_populationCap);
+    painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE + 35, infoY, popText);
 
     // ── 阶段标题 ──
     QFont uiFont;
@@ -1201,9 +1346,10 @@ void Synera::renderUI(QPainter& painter)
     helpFont.setPixelSize(11);
     painter.setFont(helpFont);
     if (m_phase == GamePhase::Preparation) {
-        painter.drawText(textX, helpY, "Buy heroes from shop (left)");
-        painter.drawText(textX, helpY + 16, "Drag from shop / recycle to board");
-        painter.drawText(textX, helpY + 32, "F5 Save  F9 Load  R Reset");
+        painter.drawText(textX, helpY, "Click recruit slots to buy (left)");
+        painter.drawText(textX, helpY + 16, "Purchased heroes appear in recycle area");
+        painter.drawText(textX, helpY + 32, "Drag from recycle to board / info to sell");
+        painter.drawText(textX, helpY + 48, "F5 Save  F9 Load  R Reset");
     } else {
         painter.drawText(textX, helpY, "Auto-combat in progress...");
         painter.drawText(textX, helpY + 16, "Press R to full reset");
@@ -1221,6 +1367,19 @@ QRect Synera::cellRect(int x, int y) const
 }
 
 Unit* Synera::findUnitAt(int x, int y) const { return m_board.getUnitAt(x, y); }
+
+int Synera::countBoardHeroes() const
+{
+    int count = 0;
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (u && !u->isDead() && !u->isDisappeared()
+                && dynamic_cast<Hero*>(u) != nullptr)
+                ++count;
+        }
+    return count;
+}
 
 Unit* Synera::findUnitAtPixel(const QPoint& p) const
 {
@@ -1253,16 +1412,46 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 商店购买按钮
-        for (int i = 0; i < (int)m_buyButtonRects.size(); ++i) {
-            if (m_buyButtonRects[i].contains(pos)) {
-                int cost = heroCost(m_shop[i].type);
-                if (m_gold >= cost) {
-                    m_gold -= cost;
-                    m_shop[i].count++;
-                }
-                return;
+        // 招募区刷新按钮
+        if (m_refreshButtonRect.contains(pos)) {
+            if (m_gold >= 15) {
+                m_gold -= 15;
+                refreshRecruitment();
             }
+            return;
+        }
+
+        // 招募槽点击购买
+        int recruitIdx = findRecruitSlotAt(pos);
+        if (recruitIdx >= 0 && !m_recruitSlots[recruitIdx].empty) {
+            int cost = m_recruitSlots[recruitIdx].price;
+            if (m_gold >= cost) {
+                // 找一个空回收槽
+                int emptySlot = -1;
+                for (int i = 0; i < 16; ++i) {
+                    if (m_recycleSlots[i] == nullptr) {
+                        emptySlot = i;
+                        break;
+                    }
+                }
+                if (emptySlot >= 0) {
+                    m_gold -= cost;
+                    Unit* u = createUnitFromPool(m_recruitSlots[recruitIdx].type, true);
+                    m_recycleSlots[emptySlot] = u;
+                    m_recruitSlots[recruitIdx].empty = true;
+                }
+            }
+            return;
+        }
+
+        // 人口上限升级按钮
+        if (m_popUpgradeButtonRect.contains(pos)) {
+            int popCost = 100 * (m_populationCap - 4);
+            if (m_gold >= popCost) {
+                m_gold -= popCost;
+                m_populationCap++;
+            }
+            return;
         }
 
         processDragStart(pos);
@@ -1291,19 +1480,7 @@ void Synera::mouseReleaseEvent(QMouseEvent *event)
 
 void Synera::processDragStart(const QPoint& mousePos)
 {
-    // 1) 商店池
-    int shopIdx = findShopSlotAt(mousePos);
-    if (shopIdx >= 0 && m_shop[shopIdx].count > 0) {
-        Unit* u = createUnitFromPool(m_shop[shopIdx].type, true);
-        m_draggedUnit = u;
-        m_dragFromShopIndex = shopIdx;
-        m_dragFromRecycleIndex = -1;
-        m_dragCurrentPos = mousePos;
-        m_shop[shopIdx].count--;
-        return;
-    }
-
-    // 2) 回收槽
+    // 1) 回收槽
     int recycleIdx = findRecycleSlotAt(mousePos);
     if (recycleIdx >= 0 && m_recycleSlots[recycleIdx] != nullptr) {
         m_draggedUnit = m_recycleSlots[recycleIdx];
@@ -1314,7 +1491,7 @@ void Synera::processDragStart(const QPoint& mousePos)
         return;
     }
 
-    // 3) 棋盘上的英雄
+    // 2) 棋盘上的英雄
     Unit* clicked = findUnitAtPixel(mousePos);
     if (clicked && dynamic_cast<Hero*>(clicked) && !clicked->isDisappeared()) {
         m_draggedUnit = clicked;
@@ -1333,16 +1510,19 @@ void Synera::processDrop(const QPoint& mousePos)
     QRect unitRect(mousePos.x() - CELL_SIZE / 2,
                    mousePos.y() - CELL_SIZE / 2, CELL_SIZE, CELL_SIZE);
 
-    // ── 放回商店池 ──
-    int shopIdx = findShopSlotAt(mousePos);
-    if (shopIdx >= 0 && m_shop[shopIdx].type == m_draggedUnit->getType()) {
-        m_shop[shopIdx].count++;
-        m_draggedUnit->setDisappeared(true);
-        m_draggedUnit = nullptr;
-        m_dragFromShopIndex = -1;
-        m_dragFromRecycleIndex = -1;
-        update();
-        return;
+    // ── 卖回英雄信息面板 ──
+    for (int i = 0; i < (int)m_shop.size(); ++i) {
+        QRect infoRect(LEFT_PANEL_X, INFO_PANEL_Y + i * (INFO_PANEL_H + INFO_SPACING),
+                       LEFT_PANEL_W, INFO_PANEL_H);
+        if (infoRect.contains(mousePos) && m_shop[i].type == m_draggedUnit->getType()) {
+            m_gold += heroCost(m_shop[i].type); // 返还基础价格
+            m_draggedUnit->setDisappeared(true);
+            m_draggedUnit = nullptr;
+            m_dragFromShopIndex = -1;
+            m_dragFromRecycleIndex = -1;
+            update();
+            return;
+        }
     }
 
     // ── 放回回收槽 (含升星) ──
@@ -1355,9 +1535,10 @@ void Synera::processDrop(const QPoint& mousePos)
             Hero* h2 = dynamic_cast<Hero*>(slotUnit);
             if (h1 && h2
                 && m_draggedUnit->getName() == slotUnit->getName()
-                && m_draggedUnit->getStarLevel() == slotUnit->getStarLevel()
-                && m_draggedUnit->getStarLevel() < 3) {
-                int newStarLevel = m_draggedUnit->getStarLevel() + 1;
+                && m_draggedUnit->getStarLevel() / 2 == slotUnit->getStarLevel() / 2
+                && m_draggedUnit->getStarLevel() < 6
+                && slotUnit->getStarLevel() < 6) {
+                int newStarLevel = std::max(m_draggedUnit->getStarLevel(), slotUnit->getStarLevel()) + 1;
                 UnitType type = m_draggedUnit->getType();
                 m_draggedUnit->setDisappeared(true);
                 slotUnit->setDisappeared(true);
@@ -1400,8 +1581,9 @@ void Synera::processDrop(const QPoint& mousePos)
                 if (occupant && dynamic_cast<Hero*>(occupant)
                     && dynamic_cast<Hero*>(m_draggedUnit)
                     && occupant->getName() == m_draggedUnit->getName()
-                    && occupant->getStarLevel() == m_draggedUnit->getStarLevel()
-                    && occupant->getStarLevel() < 3
+                    && occupant->getStarLevel() / 2 == m_draggedUnit->getStarLevel() / 2
+                    && occupant->getStarLevel() < 6
+                    && m_draggedUnit->getStarLevel() < 6
                     && overlap > bestStarUpOverlap) {
                     bestStarUpOverlap = overlap;
                     starUpGx = x; starUpGy = y;
@@ -1421,10 +1603,7 @@ void Synera::processDrop(const QPoint& mousePos)
             m_dragFromRecycleIndex = -1;
         } else {
             // Star-up failed — return dragged unit to source
-            if (m_dragFromShopIndex >= 0) {
-                m_shop[m_dragFromShopIndex].count++;
-                m_draggedUnit->setDisappeared(true);
-            } else if (m_dragFromRecycleIndex >= 0) {
+            if (m_dragFromRecycleIndex >= 0) {
                 m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
             } else {
                 m_board.placeUnit(m_draggedUnit, m_draggedUnit->getPosition().x,
@@ -1434,15 +1613,24 @@ void Synera::processDrop(const QPoint& mousePos)
             m_dragFromRecycleIndex = -1;
         }
     } else if (bestGx >= 0) {
+        // 检查人口上限（仅当拖拽来源不是棋盘时）
+        if (m_dragFromRecycleIndex >= 0) {
+            if (countBoardHeroes() >= m_populationCap) {
+                // 人口已满，返还回收槽
+                m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
+                m_draggedUnit = nullptr;
+                m_dragFromShopIndex = -1;
+                m_dragFromRecycleIndex = -1;
+                update();
+                return;
+            }
+        }
         m_board.placeUnit(m_draggedUnit, bestGx, bestGy);
         m_dragFromShopIndex = -1;
         m_dragFromRecycleIndex = -1;
     } else {
         // 没有合法位置 → 返还来源
-        if (m_dragFromShopIndex >= 0) {
-            m_shop[m_dragFromShopIndex].count++;
-            m_draggedUnit->setDisappeared(true);
-        } else if (m_dragFromRecycleIndex >= 0) {
+        if (m_dragFromRecycleIndex >= 0) {
             m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
         } else {
             // 从棋盘来，放回原位
@@ -1504,7 +1692,7 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         if (assassin->isDead() || assassin->isDisappeared()) continue;
 
         bool isHero = dynamic_cast<Hero*>(assassin) != nullptr;
-        int dmg = static_cast<int>(80 * (1 + assassin->getStarLevel() * 0.5));
+        int dmg = static_cast<int>(80 * (1 + (assassin->getStarLevel() / 2) * 0.5));
         Position ap = assassin->getPosition();
 
         // 索敌：绝对距离最近，横向距离破平
@@ -1623,9 +1811,9 @@ void Synera::processCombatFrame()
                     if (au->getHp() < au->getMaxHp()) { hasValidTarget = true; break; }
                 }
             } else if (u->getType() == UnitType::Mage) {
-                // 法师技能需周围有敌方（英雄5×5，敌方3×3）
+                // 法师技能需周围5×5有敌方
                 bool isHero = dynamic_cast<Hero*>(u) != nullptr;
-                int range = isHero ? 2 : 1;
+                int range = 2;
                 for (Unit* eu : alive) {
                     if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
                     bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;

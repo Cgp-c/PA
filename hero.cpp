@@ -11,28 +11,28 @@ Hero::Hero(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
 }
 
 WarriorHero::WarriorHero(int starLevel, int x, int y)
-    : Hero("A-Warrior", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
+    : Hero("A-Warrior", BASE_HP * (starLevel / 2 + 1), BASE_HP * (starLevel / 2 + 1),
            x, y, UnitType::Warrior, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 MageHero::MageHero(int starLevel, int x, int y)
-    : Hero("A-Mage", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
+    : Hero("A-Mage", BASE_HP * (starLevel / 2 + 1), BASE_HP * (starLevel / 2 + 1),
            x, y, UnitType::Mage, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 SupportHero::SupportHero(int starLevel, int x, int y)
-    : Hero("A-Support", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
+    : Hero("A-Support", BASE_HP * (starLevel / 2 + 1), BASE_HP * (starLevel / 2 + 1),
            x, y, UnitType::Support, 60, 120)
 {
     m_starLevel = starLevel;
 }
 
 AssassinHero::AssassinHero(int starLevel, int x, int y)
-    : Hero("A-Assassin", BASE_HP * (starLevel + 1), BASE_HP * (starLevel + 1),
+    : Hero("A-Assassin", BASE_HP * (starLevel / 2 + 1), BASE_HP * (starLevel / 2 + 1),
            x, y, UnitType::Assassin, 60, 80, Unit::MAX_MANA)
 {
     m_starLevel = starLevel;
@@ -42,7 +42,7 @@ AssassinHero::AssassinHero(int starLevel, int x, int y)
 
 void WarriorHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
-    int dmg = static_cast<int>(BASE_SKILL_DMG * (1 + m_starLevel * 0.5));
+    int dmg = static_cast<int>(BASE_SKILL_DMG * (1 + (m_starLevel / 2) * 0.5));
     Unit* best = nullptr;
     int bestDist = 999;
     for (Unit* u : allUnits) {
@@ -79,7 +79,7 @@ void MageHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
 void SupportHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
     (void)board;
-    int healAmt = static_cast<int>(BASE_SKILL_HEAL * (1 + m_starLevel * 0.5));
+    int healAmt = static_cast<int>(BASE_SKILL_HEAL * (1 + (m_starLevel / 2) * 0.5));
     std::vector<Unit*> sorted = allUnits;
     std::sort(sorted.begin(), sorted.end(), [](Unit* a, Unit* b) {
         return a->getHp() < b->getHp();
@@ -96,7 +96,7 @@ void SupportHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
 
 void AssassinHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
 {
-    int dmg = static_cast<int>(BASE_SKILL_DMG * (1 + m_starLevel * 0.5));
+    int dmg = static_cast<int>(BASE_SKILL_DMG * (1 + (m_starLevel / 2) * 0.5));
     Unit* best = nullptr;
     int bestDist = 999;
     for (Unit* u : allUnits) {

@@ -24,10 +24,14 @@
 //   按键 R → keyPressEvent → initGame() 重置
 //
 // ═══════════════════════════════════════════════════════════════
-
+// 待修；法师技能改5 * 5 且随等级增加而增加， 刺客改成曼哈顿距离3，增加装备， 修改商店生成机制
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+
+
+
+    
 
     Synera mainWin;
     mainWin.show();

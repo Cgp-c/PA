@@ -19,6 +19,12 @@ struct PoolSlot {
     int count;
 };
 
+struct RecruitSlot {
+    UnitType type;
+    int price;
+    bool empty;
+};
+
 struct HitEffect {
     int cellX, cellY;
     int amount;          // negative=damage, positive=heal
@@ -63,16 +69,18 @@ private:
 
     void saveGame(const QString& filePath);
     void loadGame(const QString& filePath);
+    void refreshRecruitment();
 
     void renderBoard(QPainter& painter);
     void renderUnits(QPainter& painter);
-    void renderShop(QPainter& painter);
+    void renderHeroInfo(QPainter& painter);
+    void renderRecruitment(QPainter& painter);
     void renderRecycleSlots(QPainter& painter);
     void renderDragGhost(QPainter& painter);
     void renderUI(QPainter& painter);
 
     QRect cellRect(int x, int y) const;
-    QRect shopBuyRect(int index) const;
+    QRect recruitSlotRect(int index) const;
     QRect recycleSlotRect(int row, int col) const;
 
     void processDragStart(const QPoint& mousePos);
@@ -92,7 +100,7 @@ private:
 
     Unit* findUnitAt(int boardX, int boardY) const;
     Unit* findUnitAtPixel(const QPoint& pixel) const;
-    int   findShopSlotAt(const QPoint& pixel) const;
+    int   findRecruitSlotAt(const QPoint& pixel) const;
     int   findRecycleSlotAt(const QPoint& pixel) const;
 
     int enemyGoldValue(const Unit* u) const;
@@ -105,7 +113,8 @@ private:
     Board m_board;
     std::vector<std::unique_ptr<Unit>> m_units;
     std::vector<std::unique_ptr<Weapon>> m_weapons;
-    std::vector<PoolSlot> m_shop;          // 商店库存（可购买数量）
+    std::vector<PoolSlot> m_shop;          // 英雄信息面板（4种类型）
+    std::vector<RecruitSlot> m_recruitSlots; // 招募区 5 槽
 
     GamePhase m_phase;
     bool m_gameOver;
@@ -128,13 +137,19 @@ private:
     // 拖拽
     Unit* m_draggedUnit;
     QPoint m_dragCurrentPos;
-    int m_dragFromShopIndex;                // -1=board, -2=recycle, >=0=shop index
-    int m_dragFromRecycleIndex;             // recycle slot index (0-7)
+    int m_dragFromShopIndex;                // -1=board, -2=recycle, >=0=recruit index
+    int m_dragFromRecycleIndex;             // recycle slot index (0-15)
 
     // 按钮区域
-    
+
     QRect m_startButtonRect;
-    std::vector<QRect> m_buyButtonRects;    // 商店购买按钮
+    QRect m_refreshButtonRect;              // 刷新招募区按钮
+    std::vector<QRect> m_recruitRects;      // 招募区 5 槽点击区域
+    QRect m_popUpgradeButtonRect;           // 人口上限升级按钮
+
+    // 人口上限
+    int m_populationCap;
+    int countBoardHeroes() const;
 
     // 视觉特效
     std::vector<HitEffect> m_hitEffects;
@@ -149,11 +164,14 @@ private:
     static constexpr int BOARD_OFFSET_X = 160;
     static constexpr int BOARD_OFFSET_Y = 64;
     static constexpr int BOARD_PIXEL_SIZE = CELL_SIZE * Board::SIZE;
-    static constexpr int SHOP_X = 10;
-    static constexpr int SHOP_Y = 64;
-    static constexpr int SHOP_SLOT_H = 88;
-    static constexpr int SHOP_PANEL_W = 62;
-    static constexpr int SHOP_ICON_W = 70;
+    static constexpr int LEFT_PANEL_X = 10;
+    static constexpr int LEFT_PANEL_W = 138;
+    static constexpr int INFO_PANEL_Y = 86;
+    static constexpr int INFO_PANEL_H = 56;
+    static constexpr int INFO_SPACING = 4;
+    static constexpr int RECRUIT_START_Y = 360;
+    static constexpr int RECRUIT_SLOT_H = 40;
+    static constexpr int RECRUIT_SPACING = 4;
     static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 20;
     static constexpr int RECYCLE_SLOT_W = 52;
     static constexpr int RECYCLE_SLOT_H = 48;
