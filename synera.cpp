@@ -39,6 +39,8 @@ Synera::Synera(QWidget *parent)
     , m_dragFromRecycleIndex(-1)
     , m_populationCap(5)
     , m_pendingEquip(nullptr)
+    , m_equipDropCap(0)
+    , m_equipDropCount(0)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
@@ -94,14 +96,11 @@ void Synera::initGame()
 
     refreshRecruitment();
 
-    // 初始化装备商店
+    // 初始化装备掉落
+    m_equipDrops.clear();
     m_pendingEquip = nullptr;
-    m_equipShop.clear();
-    m_equipShop.push_back({EquipType::Attack, 80, false});
-    m_equipShop.push_back({EquipType::Defense, 100, false});
-    m_equipShop.push_back({EquipType::Mana, 70, false});
-    m_equipShop.push_back({EquipType::Speed, 90, false});
-    m_equipShop.push_back({EquipType::Range, 60, false});
+    m_equipDropCap = 0;
+    m_equipDropCount = 0;
 }
 
 void Synera::initLevel()
@@ -307,6 +306,8 @@ void Synera::startBattle()
     }
 
     m_showLevelLoss = false;
+    m_equipDropCap = 2 + m_currentLevel;
+    m_equipDropCount = 0;
     m_hitEffects.clear();
     m_slashEffects.clear();
     m_pendingDamageEvents.clear();
@@ -518,6 +519,17 @@ void Synera::saveGame(const QString& filePath)
     }
     root["recycleUnits"] = recycleArr;
 
+    // 装备掉落
+    QJsonArray dropArr;
+    for (auto* w : m_equipDrops) {
+        if (w)
+            dropArr.append(QString::fromStdString(w->getName()));
+        else
+            dropArr.append(QJsonValue::Null);
+    }
+    root["equipDrops"] = dropArr;
+    root["equipDropCount"] = m_equipDropCount;
+
     QJsonDocument doc(root);
     QFile file(filePath);
     if (file.exists())
@@ -615,6 +627,28 @@ void Synera::loadGame(const QString& filePath)
         if (slot >= 0 && slot < 16)
             m_recycleSlots[slot] = u;
     }
+
+    // 恢复装备掉落
+    m_equipDrops.clear();
+    QJsonArray dropArr = root["equipDrops"].toArray();
+    for (auto val : dropArr) {
+        if (val.isNull()) { m_equipDrops.push_back(nullptr); continue; }
+        std::string ename = val.toString().toStdString();
+        Weapon* wp = nullptr;
+        if (ename == "Iron Sword") {
+            auto w = std::make_unique<BasicAttackWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+        } else if (ename == "Chain Mail") {
+            auto w = std::make_unique<BasicDefenseWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+        } else if (ename == "Speed Gloves") {
+            auto w = std::make_unique<BasicSpeedWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+        } else if (ename == "Blue Crystal") {
+            auto w = std::make_unique<BasicManaWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+        } else if (ename == "Warhorse") {
+            auto w = std::make_unique<BasicRangeWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+        }
+        m_equipDrops.push_back(wp);
+    }
+    m_equipDropCount = root["equipDropCount"].toInt(0);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -651,7 +685,7 @@ void Synera::paintEvent(QPaintEvent *event)
     renderUnits(painter);
     renderHeroInfo(painter);
     renderRecruitment(painter);
-    renderEquipShop(painter);
+    renderEquipDrops(painter);
     renderDragGhost(painter);
     renderUI(painter);
 }
@@ -1205,61 +1239,72 @@ void Synera::renderRecycleSlots(QPainter& painter)
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 装备商店 (招募区下方)
+// 装备掉落 (回收槽下方)
 // ═══════════════════════════════════════════════════════════════
 
-void Synera::renderEquipShop(QPainter& painter)
+void Synera::tryEquipDrop()
 {
-    if (m_phase != GamePhase::Preparation) return;
+    if (m_equipDropCount >= m_equipDropCap) return;
+    if ((int)m_equipDrops.size() >= MAX_EQUIP_DROPS) return;
+    int chance = 10 * m_currentLevel;
+    if (chance > 100) chance = 100;
+    if ((std::rand() % 100) >= chance) return;
 
-    int shopY = RECRUIT_START_Y + 5 * (RECRUIT_SLOT_H + RECRUIT_SPACING) + 40;
-    int shopTitleY = shopY - 2;
+    // 随机选一种基础装备
+    int r = std::rand() % 5;
+    std::unique_ptr<Weapon> w;
+    switch (r) {
+        case 0: w = std::make_unique<BasicAttackWeapon>(); break;
+        case 1: w = std::make_unique<BasicDefenseWeapon>(); break;
+        case 2: w = std::make_unique<BasicSpeedWeapon>(); break;
+        case 3: w = std::make_unique<BasicManaWeapon>(); break;
+        case 4: w = std::make_unique<BasicRangeWeapon>(); break;
+    }
+    Weapon* wp = w.get();
+    m_weapons.push_back(std::move(w));
+    m_equipDrops.push_back(wp);
+    ++m_equipDropCount;
+}
 
+void Synera::renderEquipDrops(QPainter& painter)
+{
+    int totalW = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
+    int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
+    int dropY = RECYCLE_Y + 2 * (RECYCLE_SLOT_H + 8) + 8;
+
+    // 标题
     QFont titleFont;
-    titleFont.setPixelSize(12);
+    titleFont.setPixelSize(11);
     titleFont.setBold(true);
     painter.setFont(titleFont);
-    painter.setPen(QColor(180, 180, 200));
-    painter.drawText(LEFT_PANEL_X, shopTitleY, "Equipment Shop");
+    painter.setPen(QColor(160, 160, 180));
+    painter.drawText(startX, dropY - 2, "Equipment Drops");
 
-    m_equipShopRects.clear();
+    m_equipDropRects.clear();
+    int slotW = 42, slotH = 28, slotGap = 3;
 
-    const char* eqNames[] = {"\345\211\221", "\347\224\262", "\350\223\235\346\260\264\346\231\266", "\346\224\273\351\200\237\350\243\205", "\346\210\230\351\251\254"};
-    // 剑, 甲, 蓝水晶, 攻速装, 战马
+    for (int i = 0; i < MAX_EQUIP_DROPS; ++i) {
+        QRect rc(startX + i * (slotW + slotGap), dropY + 8, slotW, slotH);
+        m_equipDropRects.push_back(rc);
 
-    for (int i = 0; i < (int)m_equipShop.size(); ++i) {
-        const EquipShopSlot& slot = m_equipShop[i];
-        QRect rc(LEFT_PANEL_X + i * 26, shopY + 16, 24, 28);
-        m_equipShopRects.push_back(rc);
+        if (i < (int)m_equipDrops.size() && m_equipDrops[i]) {
+            // 有装备掉落
+            painter.setBrush(QColor(45, 40, 55));
+            painter.setPen(QPen(QColor(255, 180, 50), 1));
+            painter.drawRoundedRect(rc, 3, 3);
 
-        if (slot.purchased) {
-            painter.setBrush(QColor(25, 25, 32));
-            painter.setPen(QPen(QColor(45, 45, 55), 1));
+            QString txt = QString::fromStdString(m_equipDrops[i]->getDisplayName());
+            painter.setPen(QColor(255, 220, 80));
+            QFont ef;
+            ef.setPixelSize(8);
+            ef.setBold(true);
+            painter.setFont(ef);
+            painter.drawText(rc, Qt::AlignCenter, txt);
         } else {
-            bool canBuy = (m_gold >= slot.price);
-            painter.setBrush(canBuy ? QColor(35, 45, 60) : QColor(40, 40, 40));
-            painter.setPen(QPen(canBuy ? QColor(80, 140, 200) : QColor(70, 70, 70), 1));
-        }
-        painter.drawRoundedRect(rc, 3, 3);
-
-        if (!slot.purchased) {
-            // 名称
-            painter.setPen(Qt::white);
-            QFont eqf;
-            eqf.setPixelSize(7);
-            eqf.setBold(true);
-            painter.setFont(eqf);
-            painter.drawText(rc.adjusted(1, 1, -1, -12), Qt::AlignCenter,
-                             QString::fromUtf8(eqNames[i]));
-
-            // 价格
-            bool canBuy = (m_gold >= slot.price);
-            painter.setPen(canBuy ? QColor(80, 220, 80) : QColor(200, 80, 80));
-            QFont pf;
-            pf.setPixelSize(7);
-            painter.setFont(pf);
-            painter.drawText(rc.adjusted(1, 14, -1, -1), Qt::AlignCenter,
-                             QString("$%1").arg(slot.price));
+            // 空槽
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(QColor(255, 255, 255, 40), 1));
+            painter.drawRoundedRect(rc, 3, 3);
         }
     }
 
@@ -1272,14 +1317,14 @@ void Synera::renderEquipShop(QPainter& painter)
         painter.setFont(hintFont);
         QString hint = QString("Click hero to equip: %1")
             .arg(QString::fromStdString(m_pendingEquip->getDisplayName()));
-        painter.drawText(LEFT_PANEL_X, shopY + 52, hint);
+        painter.drawText(startX, dropY + slotH + 22, hint);
     }
 }
 
-int Synera::findEquipShopAt(const QPoint& pixel) const
+int Synera::findEquipDropAt(const QPoint& pixel) const
 {
-    for (int i = 0; i < (int)m_equipShopRects.size(); ++i)
-        if (m_equipShopRects[i].contains(pixel))
+    for (int i = 0; i < (int)m_equipDropRects.size(); ++i)
+        if (m_equipDropRects[i].contains(pixel))
             return i;
     return -1;
 }
@@ -1601,47 +1646,16 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 装备商店购买
-        int equipIdx = findEquipShopAt(pos);
-        if (equipIdx >= 0 && !m_equipShop[equipIdx].purchased) {
-            int cost = m_equipShop[equipIdx].price;
-            if (m_gold >= cost) {
-                m_gold -= cost;
-                m_equipShop[equipIdx].purchased = true;
-                // 创建装备并设为待装备状态
-                switch (m_equipShop[equipIdx].type) {
-                    case EquipType::Attack: {
-                        auto w = std::make_unique<BasicAttackWeapon>();
-                        m_pendingEquip = w.get();
-                        m_weapons.push_back(std::move(w));
-                        break;
-                    }
-                    case EquipType::Defense: {
-                        auto w = std::make_unique<BasicDefenseWeapon>();
-                        m_pendingEquip = w.get();
-                        m_weapons.push_back(std::move(w));
-                        break;
-                    }
-                    case EquipType::Speed: {
-                        auto w = std::make_unique<BasicSpeedWeapon>();
-                        m_pendingEquip = w.get();
-                        m_weapons.push_back(std::move(w));
-                        break;
-                    }
-                    case EquipType::Mana: {
-                        auto w = std::make_unique<BasicManaWeapon>();
-                        m_pendingEquip = w.get();
-                        m_weapons.push_back(std::move(w));
-                        break;
-                    }
-                    case EquipType::Range: {
-                        auto w = std::make_unique<BasicRangeWeapon>();
-                        m_pendingEquip = w.get();
-                        m_weapons.push_back(std::move(w));
-                        break;
-                    }
-                    default: break;
-                }
+        // 装备掉落槽点击拾取
+        int dropIdx = findEquipDropAt(pos);
+        if (dropIdx >= 0 && dropIdx < (int)m_equipDrops.size() && m_equipDrops[dropIdx]) {
+            if (!m_pendingEquip) {
+                m_pendingEquip = m_equipDrops[dropIdx];
+                m_equipDrops[dropIdx] = nullptr;
+                // 清理空槽
+                m_equipDrops.erase(
+                    std::remove(m_equipDrops.begin(), m_equipDrops.end(), nullptr),
+                    m_equipDrops.end());
             }
             return;
         }
@@ -1857,8 +1871,10 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
         if (u->isBurning()) {
             u->tickBurning();
             if (u->isDead()) {
-                if (dynamic_cast<Enemy*>(u) != nullptr)
+                if (dynamic_cast<Enemy*>(u) != nullptr) {
                     m_pendingGold += enemyGoldValue(u);
+                    tryEquipDrop();
+                }
                 m_board.removeUnit(u->getPosition().x, u->getPosition().y);
             }
         }
@@ -1931,8 +1947,8 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
             deadSet.insert(target);
             bool aEnemy = dynamic_cast<Enemy*>(assassin) != nullptr;
             bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
-            if (aEnemy) m_pendingGold += enemyGoldValue(assassin);
-            if (tEnemy) m_pendingGold += enemyGoldValue(target);
+            if (aEnemy) { m_pendingGold += enemyGoldValue(assassin); tryEquipDrop(); }
+            if (tEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
             m_pendingDamageEvents[assassin].push_back(-assassin->getHp());
             m_pendingDamageEvents[target].push_back(-target->getHp());
             assassin->takeDamage(assassin->getHp());
@@ -1954,7 +1970,7 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         if (target->isDead()) {
             deadSet.insert(target);
             bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
-            if (tEnemy) m_pendingGold += enemyGoldValue(target);
+            if (tEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
             m_board.removeUnit(target->getPosition().x, target->getPosition().y);
         }
     }
@@ -2063,8 +2079,10 @@ void Synera::processCombatFrame()
                 }
 
                 for (Unit* eu : enemiesBeforeSkill) {
-                    if (eu->isDead())
+                    if (eu->isDead()) {
                         m_pendingGold += enemyGoldValue(eu);
+                        tryEquipDrop();
+                    }
                 }
                 continue;
             }
@@ -2113,7 +2131,7 @@ void Synera::processCombatFrame()
 
                     if (target->isDead()) {
                         bool isEnemy = dynamic_cast<Enemy*>(target) != nullptr;
-                        if (isEnemy) m_pendingGold += enemyGoldValue(target);
+                        if (isEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
                         m_board.removeUnit(target->getPosition().x, target->getPosition().y);
                     }
                     u->resetAttackTimer();

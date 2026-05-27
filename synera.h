@@ -33,12 +33,6 @@ struct HitEffect {
     bool alive;          // true=独立悬浮文本，false=随单位消失
 };
 
-struct EquipShopSlot {
-    EquipType type;
-    int price;
-    bool purchased;
-};
-
 struct SlashEffect {
     int cellX, cellY;
     bool isSkill;        // false=attack slash, true=skill slash
@@ -82,7 +76,7 @@ private:
     void renderHeroInfo(QPainter& painter);
     void renderRecruitment(QPainter& painter);
     void renderRecycleSlots(QPainter& painter);
-    void renderEquipShop(QPainter& painter);
+    void renderEquipDrops(QPainter& painter);
     void renderDragGhost(QPainter& painter);
     void renderUI(QPainter& painter);
 
@@ -97,6 +91,7 @@ private:
     void processCombatFrame();
     void processBurningTick(std::vector<Unit*>& alive);
     void processAssassinSkills(std::vector<Unit*>& alive);
+    void tryEquipDrop();
     Unit* findNearestEnemyFor(Unit* unit) const;
     Unit* findHealTarget(Unit* support) const;
     Unit* findNearestAlly(Unit* unit) const;
@@ -109,7 +104,7 @@ private:
     Unit* findUnitAtPixel(const QPoint& pixel) const;
     int   findRecruitSlotAt(const QPoint& pixel) const;
     int   findRecycleSlotAt(const QPoint& pixel) const;
-    int   findEquipShopAt(const QPoint& pixel) const;
+    int   findEquipDropAt(const QPoint& pixel) const;
 
     int enemyGoldValue(const Unit* u) const;
     int heroCost(UnitType t) const;
@@ -148,10 +143,14 @@ private:
     int m_dragFromShopIndex;                // -1=board, -2=recycle, >=0=recruit index
     int m_dragFromRecycleIndex;             // recycle slot index (0-15)
 
-    // 装备商店
-    std::vector<EquipShopSlot> m_equipShop;
+    // 装备掉落
+    std::vector<Weapon*> m_equipDrops;
     Weapon* m_pendingEquip;
-    std::vector<QRect> m_equipShopRects;
+    std::vector<QRect> m_equipDropRects;
+    int m_equipDropCap;
+    int m_equipDropCount;
+
+    static constexpr int MAX_EQUIP_DROPS = 8;
 
     // 按钮区域
 
