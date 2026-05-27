@@ -38,6 +38,7 @@ Synera::Synera(QWidget *parent)
     , m_dragFromShopIndex(-1)
     , m_dragFromRecycleIndex(-1)
     , m_populationCap(5)
+    , m_pendingEquip(nullptr)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
@@ -92,6 +93,15 @@ void Synera::initGame()
         m_recruitSlots.push_back({UnitType::Warrior, 0, true});
 
     refreshRecruitment();
+
+    // 初始化装备商店
+    m_pendingEquip = nullptr;
+    m_equipShop.clear();
+    m_equipShop.push_back({EquipType::Attack, 80, false});
+    m_equipShop.push_back({EquipType::Defense, 100, false});
+    m_equipShop.push_back({EquipType::Mana, 70, false});
+    m_equipShop.push_back({EquipType::Speed, 90, false});
+    m_equipShop.push_back({EquipType::Range, 60, false});
 }
 
 void Synera::initLevel()
@@ -464,9 +474,16 @@ void Synera::saveGame(const QString& filePath)
             bu["maxHp"] = u->getMaxHp();
             bu["mana"] = u->getMana();
             bu["burning"] = u->getBurningTurns();
-            if (u->getEquipment())
-                bu["equip"] = QString("%1 %2").arg(QString::fromStdString(u->getEquipment()->getName()))
-                                               .arg(u->getEquipment()->getDamage());
+            // 多槽装备存档
+            QJsonArray equipArr;
+            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                Weapon* ew = u->getEquip(static_cast<EquipType>(ei));
+                if (ew)
+                    equipArr.append(QString::fromStdString(ew->getName()));
+                else
+                    equipArr.append(QJsonValue::Null);
+            }
+            bu["equips"] = equipArr;
             boardArr.append(bu);
         }
     }
@@ -488,9 +505,15 @@ void Synera::saveGame(const QString& filePath)
         ru["maxHp"] = u->getMaxHp();
         ru["mana"] = u->getMana();
         ru["burning"] = u->getBurningTurns();
-        if (u->getEquipment())
-            ru["equip"] = QString("%1 %2").arg(QString::fromStdString(u->getEquipment()->getName()))
-                                           .arg(u->getEquipment()->getDamage());
+        QJsonArray equipArr;
+        for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+            Weapon* ew = u->getEquip(static_cast<EquipType>(ei));
+            if (ew)
+                equipArr.append(QString::fromStdString(ew->getName()));
+            else
+                equipArr.append(QJsonValue::Null);
+        }
+        ru["equips"] = equipArr;
         recycleArr.append(ru);
     }
     root["recycleUnits"] = recycleArr;
@@ -543,23 +566,34 @@ void Synera::loadGame(const QString& filePath)
         auto t = static_cast<UnitType>(o["type"].toInt());
         int star = o["star"].toInt(0);
         Unit* u = createUnitFromPool(t, true, star);
-        u->setHp(o["hp"].toInt(u->getMaxHp()));
         u->setMaxHp(o["maxHp"].toInt(u->getMaxHp()));
         u->resetMana();
+        // 先恢复装备（防御装会影响HP），再设置HP
+        QJsonArray equipArr = o["equips"].toArray();
+        for (int ei = 0; ei < equipArr.size() && ei < static_cast<int>(EquipType::COUNT); ++ei) {
+            if (equipArr[ei].isNull()) continue;
+            std::string ename = equipArr[ei].toString().toStdString();
+            Weapon* wp = nullptr;
+            if (ename == "Iron Sword") {
+                auto w = std::make_unique<BasicAttackWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+            } else if (ename == "Chain Mail") {
+                auto w = std::make_unique<BasicDefenseWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+            } else if (ename == "Speed Gloves") {
+                auto w = std::make_unique<BasicSpeedWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+            } else if (ename == "Blue Crystal") {
+                auto w = std::make_unique<BasicManaWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+            } else if (ename == "Warhorse") {
+                auto w = std::make_unique<BasicRangeWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+            }
+            if (wp) u->equip(wp);
+        }
+        // 装备恢复后再设置HP（防御装equip()会给m_hp加bonus，setHp会覆写为存档值）
+        int savedHp = o["hp"].toInt(-1);
+        if (savedHp >= 0) u->setHp(savedHp);
         int mana = o["mana"].toInt(0);
         for (int i = 0; i < mana; ++i) u->gainMana();
         int burning = o["burning"].toInt(0);
         if (burning > 0) u->applyBurning(burning);
-        QString equipStr = o["equip"].toString();
-        if (!equipStr.isEmpty()) {
-            auto parts = equipStr.split(' ');
-            if (parts.size() >= 2) {
-                auto w = std::make_unique<Weapon>(parts[0].toStdString(), parts[1].toInt());
-                Weapon* wp = w.get();
-                m_weapons.push_back(std::move(w));
-                u->setEquipment(wp);
-            }
-        }
         return u;
     };
 
@@ -617,6 +651,7 @@ void Synera::paintEvent(QPaintEvent *event)
     renderUnits(painter);
     renderHeroInfo(painter);
     renderRecruitment(painter);
+    renderEquipShop(painter);
     renderDragGhost(painter);
     renderUI(painter);
 }
@@ -783,9 +818,10 @@ void Synera::renderUnits(QPainter& painter)
             int dotR = 4;
             int dotSpacing = 10;
             int dotY = barBg.top() - dotR - 3;
-            int totalDotW = Unit::MAX_MANA * dotSpacing - (dotSpacing - dotR * 2);
+            int unitMaxMana = unit->getMaxMana();
+            int totalDotW = unitMaxMana * dotSpacing - (dotSpacing - dotR * 2);
             int dotStartX = ur.center().x() - totalDotW / 2;
-            for (int iDot = 0; iDot < Unit::MAX_MANA; ++iDot) {
+            for (int iDot = 0; iDot < unitMaxMana; ++iDot) {
                 int cx = dotStartX + iDot * dotSpacing;
                 bool filled = (iDot < unit->getMana());
                 painter.setBrush(filled ? QColor(240, 240, 240) : QColor(60, 60, 60));
@@ -793,14 +829,45 @@ void Synera::renderUnits(QPainter& painter)
                 painter.drawEllipse(QPoint(cx, dotY), dotR, dotR);
             }
 
-            // 装备
-            if (unit->getEquipment()) {
-                painter.setPen(QColor(255, 210, 0));
+            // 装备框（右侧5格）
+            if (isHero) {
+                int boxH = 9, boxGap = 1;
+                int boxStartY = rc.top() + 2;
+                int maxSlots = unit->getMaxEquipSlots();
+
                 QFont eqFont;
-                eqFont.setPixelSize(8);
+                eqFont.setPixelSize(6);
+                eqFont.setBold(true);
                 painter.setFont(eqFont);
-                painter.drawText(ur.adjusted(3, 0, 0, 0), Qt::AlignBottom | Qt::AlignLeft,
-                                 QString("[%1]").arg(QString::fromStdString(unit->getEquipment()->getName())));
+
+                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                    EquipType et = static_cast<EquipType>(ei);
+                    Weapon* ew = unit->getEquip(et);
+
+                    if (!ew && ei >= maxSlots) continue; // 等级不够且无装备
+
+                    int boxW = 14;
+                    QString txt;
+                    if (ew) {
+                        txt = QString::fromStdString(ew->getDisplayName());
+                        int txtW = painter.fontMetrics().horizontalAdvance(txt) + 4;
+                        if (txtW > boxW) boxW = txtW;
+                    }
+
+                    QRect boxRect(rc.right() - boxW - 2, boxStartY + ei * (boxH + boxGap), boxW, boxH);
+
+                    if (ew) {
+                        painter.setBrush(QColor(40, 40, 55));
+                        painter.setPen(QPen(QColor(255, 210, 50), 1));
+                        painter.drawRoundedRect(boxRect, 2, 2);
+                        painter.setPen(QColor(255, 220, 80));
+                        painter.drawText(boxRect, Qt::AlignCenter, txt);
+                    } else {
+                        painter.setBrush(QColor(28, 28, 38));
+                        painter.setPen(QPen(QColor(60, 60, 75), 1));
+                        painter.drawRoundedRect(boxRect, 2, 2);
+                    }
+                }
             }
 
             // 星数图标（仅英雄显示，在格子左侧）
@@ -1138,6 +1205,86 @@ void Synera::renderRecycleSlots(QPainter& painter)
 }
 
 // ═══════════════════════════════════════════════════════════════
+// 装备商店 (招募区下方)
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderEquipShop(QPainter& painter)
+{
+    if (m_phase != GamePhase::Preparation) return;
+
+    int shopY = RECRUIT_START_Y + 5 * (RECRUIT_SLOT_H + RECRUIT_SPACING) + 40;
+    int shopTitleY = shopY - 2;
+
+    QFont titleFont;
+    titleFont.setPixelSize(12);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(QColor(180, 180, 200));
+    painter.drawText(LEFT_PANEL_X, shopTitleY, "Equipment Shop");
+
+    m_equipShopRects.clear();
+
+    const char* eqNames[] = {"\345\211\221", "\347\224\262", "\350\223\235\346\260\264\346\231\266", "\346\224\273\351\200\237\350\243\205", "\346\210\230\351\251\254"};
+    // 剑, 甲, 蓝水晶, 攻速装, 战马
+
+    for (int i = 0; i < (int)m_equipShop.size(); ++i) {
+        const EquipShopSlot& slot = m_equipShop[i];
+        QRect rc(LEFT_PANEL_X + i * 26, shopY + 16, 24, 28);
+        m_equipShopRects.push_back(rc);
+
+        if (slot.purchased) {
+            painter.setBrush(QColor(25, 25, 32));
+            painter.setPen(QPen(QColor(45, 45, 55), 1));
+        } else {
+            bool canBuy = (m_gold >= slot.price);
+            painter.setBrush(canBuy ? QColor(35, 45, 60) : QColor(40, 40, 40));
+            painter.setPen(QPen(canBuy ? QColor(80, 140, 200) : QColor(70, 70, 70), 1));
+        }
+        painter.drawRoundedRect(rc, 3, 3);
+
+        if (!slot.purchased) {
+            // 名称
+            painter.setPen(Qt::white);
+            QFont eqf;
+            eqf.setPixelSize(7);
+            eqf.setBold(true);
+            painter.setFont(eqf);
+            painter.drawText(rc.adjusted(1, 1, -1, -12), Qt::AlignCenter,
+                             QString::fromUtf8(eqNames[i]));
+
+            // 价格
+            bool canBuy = (m_gold >= slot.price);
+            painter.setPen(canBuy ? QColor(80, 220, 80) : QColor(200, 80, 80));
+            QFont pf;
+            pf.setPixelSize(7);
+            painter.setFont(pf);
+            painter.drawText(rc.adjusted(1, 14, -1, -1), Qt::AlignCenter,
+                             QString("$%1").arg(slot.price));
+        }
+    }
+
+    // pending equip hint
+    if (m_pendingEquip) {
+        painter.setPen(QColor(255, 210, 80));
+        QFont hintFont;
+        hintFont.setPixelSize(9);
+        hintFont.setBold(true);
+        painter.setFont(hintFont);
+        QString hint = QString("Click hero to equip: %1")
+            .arg(QString::fromStdString(m_pendingEquip->getDisplayName()));
+        painter.drawText(LEFT_PANEL_X, shopY + 52, hint);
+    }
+}
+
+int Synera::findEquipShopAt(const QPoint& pixel) const
+{
+    for (int i = 0; i < (int)m_equipShopRects.size(); ++i)
+        if (m_equipShopRects[i].contains(pixel))
+            return i;
+    return -1;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // 拖拽幽灵
 // ═══════════════════════════════════════════════════════════════
 
@@ -1450,6 +1597,61 @@ void Synera::mousePressEvent(QMouseEvent *event)
             if (m_gold >= popCost) {
                 m_gold -= popCost;
                 m_populationCap++;
+            }
+            return;
+        }
+
+        // 装备商店购买
+        int equipIdx = findEquipShopAt(pos);
+        if (equipIdx >= 0 && !m_equipShop[equipIdx].purchased) {
+            int cost = m_equipShop[equipIdx].price;
+            if (m_gold >= cost) {
+                m_gold -= cost;
+                m_equipShop[equipIdx].purchased = true;
+                // 创建装备并设为待装备状态
+                switch (m_equipShop[equipIdx].type) {
+                    case EquipType::Attack: {
+                        auto w = std::make_unique<BasicAttackWeapon>();
+                        m_pendingEquip = w.get();
+                        m_weapons.push_back(std::move(w));
+                        break;
+                    }
+                    case EquipType::Defense: {
+                        auto w = std::make_unique<BasicDefenseWeapon>();
+                        m_pendingEquip = w.get();
+                        m_weapons.push_back(std::move(w));
+                        break;
+                    }
+                    case EquipType::Speed: {
+                        auto w = std::make_unique<BasicSpeedWeapon>();
+                        m_pendingEquip = w.get();
+                        m_weapons.push_back(std::move(w));
+                        break;
+                    }
+                    case EquipType::Mana: {
+                        auto w = std::make_unique<BasicManaWeapon>();
+                        m_pendingEquip = w.get();
+                        m_weapons.push_back(std::move(w));
+                        break;
+                    }
+                    case EquipType::Range: {
+                        auto w = std::make_unique<BasicRangeWeapon>();
+                        m_pendingEquip = w.get();
+                        m_weapons.push_back(std::move(w));
+                        break;
+                    }
+                    default: break;
+                }
+            }
+            return;
+        }
+
+        // 有待装备物品时，点击棋盘英雄进行装备
+        if (m_pendingEquip) {
+            Unit* clickedHero = findUnitAtPixel(pos);
+            if (clickedHero && dynamic_cast<Hero*>(clickedHero) && !clickedHero->isDisappeared()) {
+                if (clickedHero->equip(m_pendingEquip))
+                    m_pendingEquip = nullptr;
             }
             return;
         }

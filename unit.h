@@ -66,7 +66,6 @@ public:
     int getHp() const;
     int getMaxHp() const;
     Position getPosition() const;
-    Weapon* getEquipment() const;
     UnitType getType() const;
 
     virtual int getAttackRange() const = 0;
@@ -78,9 +77,21 @@ public:
     void setStarLevel(int level);
 
     void setPosition(int x, int y);
-    void setEquipment(Weapon* weapon);
     void setHp(int hp);
     void setMaxHp(int maxHp);
+
+    // 装备系统
+    bool equip(Weapon* weapon);
+    void unequip(EquipType type);
+    Weapon* getEquip(EquipType type) const;
+    int getMaxEquipSlots() const;
+    int getEquippedCount() const;
+
+    int getEquipBonusDamage() const;
+    int getEquipBonusHp() const;
+    double getEquipSpeedMultiplier() const;
+    int getEquipSkillManaCost() const;
+    int getEquipBonusRange() const;
 
     // 速度 / 计时器
     int getMoveSpeed() const;
@@ -96,7 +107,7 @@ protected:
     int m_hp;
     int m_maxHp;
     Position m_pos;
-    Weapon* m_equipment;
+    Weapon* m_equipment[static_cast<int>(EquipType::COUNT)];
     bool m_disappeared;
     UnitType m_type;
     int m_starLevel;
