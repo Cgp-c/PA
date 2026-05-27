@@ -37,6 +37,10 @@ Synera::Synera(QWidget *parent)
     , m_draggedUnit(nullptr)
     , m_dragFromShopIndex(-1)
     , m_dragFromRecycleIndex(-1)
+    , m_draggedWeapon(nullptr)
+    , m_dragWeaponFromDropIdx(-1)
+    , m_dragWeaponFromUnit(nullptr)
+    , m_dragWeaponFromSlot(EquipType::Attack)
     , m_populationCap(5)
     , m_pendingEquip(nullptr)
     , m_equipDropCap(0)
@@ -44,7 +48,7 @@ Synera::Synera(QWidget *parent)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
-    resize(960, 780);
+    resize(880, 720);
     setMouseTracking(true);
 
     initGame();
@@ -256,6 +260,120 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
     return true;
 }
 
+void Synera::checkAutoStarUp()
+{
+    struct UnitRef {
+        Unit* unit;
+        bool onBoard;
+        int bx, by;
+        int slotIdx;
+    };
+
+    std::map<std::pair<std::string, int>, std::vector<UnitRef>> groups;
+
+    // 收集棋盘上的英雄
+    for (int y = 0; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (!dynamic_cast<Hero*>(u)) continue;
+            int fullStar = u->getStarLevel() / 2;
+            groups[{u->getName(), fullStar}].push_back({u, true, x, y, -1});
+        }
+    }
+
+    // 收集回收槽中的英雄
+    for (int i = 0; i < 16; ++i) {
+        Unit* u = m_recycleSlots[i];
+        if (!u || u->isDead() || u->isDisappeared()) continue;
+        if (!dynamic_cast<Hero*>(u)) continue;
+        int fullStar = u->getStarLevel() / 2;
+        groups[{u->getName(), fullStar}].push_back({u, false, -1, -1, i});
+    }
+
+    bool merged = false;
+
+    for (auto& [key, units] : groups) {
+        while (units.size() >= 3) {
+            // 取前3个合成
+            int newStarLevel = units[0].unit->getStarLevel() + 2;
+            if (newStarLevel > 6) newStarLevel = 6;
+            UnitType type = units[0].unit->getType();
+
+            // 确认有空回收槽（至少合并中有一个回收槽单位，移除后即空出）
+            bool hasRecycleSlot = false;
+            for (int i = 0; i < 3; ++i) {
+                if (!units[i].onBoard) { hasRecycleSlot = true; break; }
+            }
+            int emptySlot = -1;
+            for (int i = 0; i < 16; ++i) {
+                if (m_recycleSlots[i] == nullptr) { emptySlot = i; break; }
+            }
+            if (!hasRecycleSlot && emptySlot < 0) break; // 没有空间放升级单位
+
+            // 收集3个源单位的所有装备
+            std::vector<Weapon*> collectedEquips;
+            for (int i = 0; i < 3; ++i) {
+                Unit* u = units[i].unit;
+                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                    EquipType et = static_cast<EquipType>(ei);
+                    Weapon* ew = u->getEquip(et);
+                    if (ew) {
+                        collectedEquips.push_back(ew);
+                        u->unequip(et);
+                    }
+                }
+            }
+
+            // 删除3个源单位
+            for (int i = 0; i < 3; ++i) {
+                auto& ref = units[i];
+                if (ref.onBoard)
+                    m_board.removeUnit(ref.bx, ref.by);
+                else
+                    m_recycleSlots[ref.slotIdx] = nullptr;
+                ref.unit->setDisappeared(true);
+            }
+
+            // 创建升级单位放入回收槽
+            Unit* newUnit = createUpgradedHero(type, newStarLevel);
+
+            // 将收集的装备装到升级单位上（每种类型保留一件），多余的放回掉落区
+            bool equipped[static_cast<int>(EquipType::COUNT)] = {};
+            for (Weapon* ew : collectedEquips) {
+                int etIdx = static_cast<int>(ew->getEquipType());
+                if (!equipped[etIdx]) {
+                    if (newUnit->equip(ew))
+                        equipped[etIdx] = true;
+                    else
+                        m_equipDrops.push_back(ew);
+                } else {
+                    m_equipDrops.push_back(ew);
+                }
+            }
+            if (emptySlot < 0) {
+                // 使用刚释放的回收槽位置
+                for (int i = 0; i < 16; ++i) {
+                    if (m_recycleSlots[i] == nullptr) { emptySlot = i; break; }
+                }
+            }
+            if (emptySlot >= 0)
+                m_recycleSlots[emptySlot] = newUnit;
+
+            if (type == UnitType::Assassin) {
+                for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
+                    newUnit->gainMana();
+            }
+
+            units.erase(units.begin(), units.begin() + 3);
+            merged = true;
+        }
+    }
+
+    if (merged)
+        checkAutoStarUp(); // 递归检查是否触发新的合成
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 开始战斗
 // ═══════════════════════════════════════════════════════════════
@@ -364,6 +482,9 @@ void Synera::endLevel(bool playerWon)
             else
                 u->setDisappeared(true);
         }
+
+        checkAutoStarUp();
+
         // 金币利息（若有下一关，未使用金币变1.5倍）
         if (m_currentLevel < MAX_LEVEL)
             m_gold = static_cast<int>(m_gold * 1.5);
@@ -649,6 +770,8 @@ void Synera::loadGame(const QString& filePath)
         m_equipDrops.push_back(wp);
     }
     m_equipDropCount = root["equipDropCount"].toInt(0);
+
+    checkAutoStarUp();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -812,21 +935,21 @@ void Synera::renderUnits(QPainter& painter)
             // 角色标签
             painter.setPen(Qt::white);
             QFont typeFont;
-            typeFont.setPixelSize(22);
+            typeFont.setPixelSize(20);
             typeFont.setBold(true);
             painter.setFont(typeFont);
             painter.drawText(ur, Qt::AlignCenter, typeLabel(t));
 
             // 名字（顶部）
             QFont nameFont;
-            nameFont.setPixelSize(10);
+            nameFont.setPixelSize(9);
             nameFont.setBold(true);
             painter.setFont(nameFont);
             painter.drawText(ur.adjusted(3, 2, 0, 0),
                              QString::fromStdString(unit->getName()));
 
             // HP 条（底部）
-            int barH = 7;
+            int barH = 6;
             int barY = ur.bottom() - barH - 2;
             double ratio = (double)unit->getHp() / unit->getMaxHp();
             QRect barBg(ur.left() + 2, barY, ur.width() - 4, barH);
@@ -842,15 +965,15 @@ void Synera::renderUnits(QPainter& painter)
             painter.drawRoundedRect(barFill, 2, 2);
 
             QFont hpFont;
-            hpFont.setPixelSize(8);
+            hpFont.setPixelSize(7);
             painter.setFont(hpFont);
             painter.setPen(Qt::white);
             painter.drawText(barBg, Qt::AlignCenter,
                              QString("%1/%2").arg(unit->getHp()).arg(unit->getMaxHp()));
 
             // 法力值圆点
-            int dotR = 4;
-            int dotSpacing = 10;
+            int dotR = 3;
+            int dotSpacing = 9;
             int dotY = barBg.top() - dotR - 3;
             int unitMaxMana = unit->getMaxMana();
             int totalDotW = unitMaxMana * dotSpacing - (dotSpacing - dotR * 2);
@@ -872,30 +995,35 @@ void Synera::renderUnits(QPainter& painter)
                 QFont eqFont;
                 eqFont.setPixelSize(6);
                 eqFont.setBold(true);
-                painter.setFont(eqFont);
+                QFontMetrics eqFm(eqFont);
 
+                // 第一遍：计算所需最大宽度
+                int maxBoxW = 14;
                 for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                     EquipType et = static_cast<EquipType>(ei);
                     Weapon* ew = unit->getEquip(et);
-
-                    if (!ew && ei >= maxSlots) continue; // 等级不够且无装备
-
-                    int boxW = 14;
-                    QString txt;
+                    if (!ew && ei >= maxSlots) continue;
                     if (ew) {
-                        txt = QString::fromStdString(ew->getDisplayName());
-                        int txtW = painter.fontMetrics().horizontalAdvance(txt) + 4;
-                        if (txtW > boxW) boxW = txtW;
+                        int w = eqFm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 4;
+                        if (w > maxBoxW) maxBoxW = w;
                     }
+                }
 
-                    QRect boxRect(rc.right() - boxW - 2, boxStartY + ei * (boxH + boxGap), boxW, boxH);
+                // 第二遍：统一宽度绘制
+                painter.setFont(eqFont);
+                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                    EquipType et = static_cast<EquipType>(ei);
+                    Weapon* ew = unit->getEquip(et);
+                    if (!ew && ei >= maxSlots) continue;
+
+                    QRect boxRect(rc.right() - maxBoxW - 2, boxStartY + ei * (boxH + boxGap), maxBoxW, boxH);
 
                     if (ew) {
                         painter.setBrush(QColor(40, 40, 55));
                         painter.setPen(QPen(QColor(255, 210, 50), 1));
                         painter.drawRoundedRect(boxRect, 2, 2);
                         painter.setPen(QColor(255, 220, 80));
-                        painter.drawText(boxRect, Qt::AlignCenter, txt);
+                        painter.drawText(boxRect, Qt::AlignCenter, QString::fromStdString(ew->getDisplayName()));
                     } else {
                         painter.setBrush(QColor(28, 28, 38));
                         painter.setPen(QPen(QColor(60, 60, 75), 1));
@@ -906,8 +1034,8 @@ void Synera::renderUnits(QPainter& painter)
 
             // 星数图标（仅英雄显示，在格子左侧）
             if (isHero) {
-                double starR = 5.0;
-                double starSpacing = 14.0;
+                double starR = 4.0;
+                double starSpacing = 12.0;
                 double startY = rc.center().y() - starSpacing;
                 double starX = rc.left() + starR + 4;
                 int halfStars = unit->getStarLevel();
@@ -966,7 +1094,7 @@ void Synera::renderHeroInfo(QPainter& painter)
 
     // 标题
     QFont titleFont;
-    titleFont.setPixelSize(12);
+    titleFont.setPixelSize(11);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(180, 180, 200));
@@ -982,7 +1110,7 @@ void Synera::renderHeroInfo(QPainter& painter)
         painter.drawRoundedRect(panelRect, 4, 4);
 
         // 类型色块 + 标签
-        QRect colorRect(panelRect.left() + 4, panelRect.top() + 4, 22, 22);
+        QRect colorRect(panelRect.left() + 4, panelRect.top() + 4, 20, 20);
         QColor fill = typeFillColor(slot.type, true);
         painter.setBrush(fill);
         painter.setPen(Qt::NoPen);
@@ -990,7 +1118,7 @@ void Synera::renderHeroInfo(QPainter& painter)
 
         painter.setPen(Qt::white);
         QFont iconFont;
-        iconFont.setPixelSize(12);
+        iconFont.setPixelSize(11);
         iconFont.setBold(true);
         painter.setFont(iconFont);
         painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
@@ -998,20 +1126,20 @@ void Synera::renderHeroInfo(QPainter& painter)
         // 名称
         const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
         QFont nameFont;
-        nameFont.setPixelSize(9);
+        nameFont.setPixelSize(8);
         nameFont.setBold(true);
         painter.setFont(nameFont);
         painter.setPen(QColor(200, 200, 220));
-        painter.drawText(colorRect.right() + 6, panelRect.top() + 14, names[(int)slot.type]);
+        painter.drawText(colorRect.right() + 6, panelRect.top() + 12, names[(int)slot.type]);
 
-        // 属性数据（8px 字体）
+        // 属性数据
         QFont statFont;
-        statFont.setPixelSize(8);
+        statFont.setPixelSize(7);
         painter.setFont(statFont);
         painter.setPen(QColor(170, 170, 190));
         int sx = panelRect.left() + 6;
-        int sy = panelRect.top() + 28;
-        int lh = 11;
+        int sy = panelRect.top() + 24;
+        int lh = 10;
         int baseCost = heroCost(slot.type);
         switch (slot.type) {
             case UnitType::Warrior:
@@ -1048,14 +1176,14 @@ void Synera::renderRecruitment(QPainter& painter)
 
     // 标题
     QFont titleFont;
-    titleFont.setPixelSize(12);
+    titleFont.setPixelSize(11);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(180, 180, 200));
     painter.drawText(LEFT_PANEL_X, titleY, "Recruit");
 
     // 刷新按钮（标题右侧）
-    int refreshW = 62, refreshH = 18;
+    int refreshW = 56, refreshH = 16;
     QRect refreshRect(LEFT_PANEL_X + LEFT_PANEL_W - refreshW, titleY - 14, refreshW, refreshH);
     m_refreshButtonRect = refreshRect;
 
@@ -1066,7 +1194,7 @@ void Synera::renderRecruitment(QPainter& painter)
 
     painter.setPen(canRefresh ? Qt::white : QColor(150, 150, 150));
     QFont rfFont;
-    rfFont.setPixelSize(9);
+    rfFont.setPixelSize(8);
     rfFont.setBold(true);
     painter.setFont(rfFont);
     painter.drawText(refreshRect, Qt::AlignCenter, "Refresh $15");
@@ -1084,7 +1212,7 @@ void Synera::renderRecruitment(QPainter& painter)
             painter.drawRoundedRect(rc, 4, 4);
             painter.setPen(QColor(100, 100, 110));
             QFont emptyFont;
-            emptyFont.setPixelSize(10);
+            emptyFont.setPixelSize(9);
             painter.setFont(emptyFont);
             painter.drawText(rc, Qt::AlignCenter, "- empty -");
         } else {
@@ -1093,7 +1221,7 @@ void Synera::renderRecruitment(QPainter& painter)
             painter.drawRoundedRect(rc, 4, 4);
 
             // 角色色块
-            QRect colorRect(rc.left() + 4, rc.top() + 4, 28, rc.height() - 8);
+            QRect colorRect(rc.left() + 4, rc.top() + 3, 24, rc.height() - 6);
             QColor fill = typeFillColor(slot.type, true);
             painter.setBrush(fill);
             painter.setPen(Qt::NoPen);
@@ -1102,7 +1230,7 @@ void Synera::renderRecruitment(QPainter& painter)
             // 类型标签
             painter.setPen(Qt::white);
             QFont iconFont;
-            iconFont.setPixelSize(14);
+            iconFont.setPixelSize(12);
             iconFont.setBold(true);
             painter.setFont(iconFont);
             painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
@@ -1110,17 +1238,17 @@ void Synera::renderRecruitment(QPainter& painter)
             // 名称
             const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
             QFont nameFont;
-            nameFont.setPixelSize(9);
+            nameFont.setPixelSize(8);
             nameFont.setBold(true);
             painter.setFont(nameFont);
             painter.setPen(QColor(200, 200, 220));
-            painter.drawText(colorRect.right() + 6, rc.top() + 14, names[(int)slot.type]);
+            painter.drawText(colorRect.right() + 5, rc.top() + 12, names[(int)slot.type]);
 
             // 价格（右侧）
             bool canBuy = (m_gold >= slot.price);
             painter.setPen(canBuy ? QColor(80, 220, 80) : QColor(200, 80, 80));
             QFont priceFont;
-            priceFont.setPixelSize(10);
+            priceFont.setPixelSize(9);
             priceFont.setBold(true);
             painter.setFont(priceFont);
             QRect priceRect(rc.right() - 55, rc.top(), 50, rc.height());
@@ -1131,7 +1259,7 @@ void Synera::renderRecruitment(QPainter& painter)
     // 人口上限升级按钮（招募区下方）
     int popBtnY = RECRUIT_START_Y + 5 * (RECRUIT_SLOT_H + RECRUIT_SPACING) + 8;
     int popCost = 100 * (m_populationCap - 4);
-    QRect popBtnRect(LEFT_PANEL_X, popBtnY, 80, 26);
+    QRect popBtnRect(LEFT_PANEL_X, popBtnY, 72, 22);
     m_popUpgradeButtonRect = popBtnRect;
 
     bool canBuyPop = (m_gold >= popCost);
@@ -1141,7 +1269,7 @@ void Synera::renderRecruitment(QPainter& painter)
 
     painter.setPen(canBuyPop ? Qt::white : QColor(150, 150, 150));
     QFont popBtnFont;
-    popBtnFont.setPixelSize(10);
+    popBtnFont.setPixelSize(9);
     popBtnFont.setBold(true);
     painter.setFont(popBtnFont);
     painter.drawText(popBtnRect, Qt::AlignCenter, QString("Pop+ $%1").arg(popCost));
@@ -1176,7 +1304,7 @@ void Synera::renderRecycleSlots(QPainter& painter)
 
     // 标题常驻
     QFont titleFont;
-    titleFont.setPixelSize(11);
+    titleFont.setPixelSize(10);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(160, 160, 180));
@@ -1198,7 +1326,7 @@ void Synera::renderRecycleSlots(QPainter& painter)
 
                 painter.setPen(Qt::white);
                 QFont f;
-                f.setPixelSize(13);
+                f.setPixelSize(11);
                 f.setBold(true);
                 painter.setFont(f);
                 painter.drawText(rc, Qt::AlignCenter, typeLabel(t));
@@ -1216,8 +1344,8 @@ void Synera::renderRecycleSlots(QPainter& painter)
                 painter.drawRoundedRect(QRect(barBg.left(), barY, (int)(barBg.width() * ratio), barH), 1, 1);
 
                 // 星数图标
-                double starR = 3.5;
-                double starSpacing = 8.0;
+                double starR = 3.0;
+                double starSpacing = 7.0;
                 double startY = rc.center().y() - starSpacing;
                 double starX = rc.left() + starR + 3;
                 int halfStars = u->getStarLevel();
@@ -1227,6 +1355,48 @@ void Synera::renderRecycleSlots(QPainter& painter)
                     if (s < halfStars / 2) mode = 2;
                     else if (s == halfStars / 2 && halfStars % 2 == 1) mode = 1;
                     drawStar(painter, starCenter, starR, mode);
+                }
+
+                // 装备图标
+                int maxSlots = u->getMaxEquipSlots();
+                int eqBoxH = 8, eqBoxGap = 1;
+                int eqBoxStartY = rc.top() + 2;
+
+                QFont eqFont;
+                eqFont.setPixelSize(6);
+                QFontMetrics eqFm(eqFont);
+
+                // 第一遍：计算所需最大宽度
+                int maxEqBoxW = 12;
+                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                    EquipType et = static_cast<EquipType>(ei);
+                    Weapon* ew = u->getEquip(et);
+                    if (!ew && ei >= maxSlots) continue;
+                    if (ew) {
+                        int w = eqFm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 3;
+                        if (w > maxEqBoxW) maxEqBoxW = w;
+                    }
+                }
+
+                // 第二遍：统一宽度绘制
+                painter.setFont(eqFont);
+                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                    EquipType et = static_cast<EquipType>(ei);
+                    Weapon* ew = u->getEquip(et);
+                    if (!ew && ei >= maxSlots) continue;
+
+                    QRect eqBox(rc.right() - maxEqBoxW - 2, eqBoxStartY + ei * (eqBoxH + eqBoxGap), maxEqBoxW, eqBoxH);
+                    if (ew) {
+                        painter.setBrush(QColor(40, 40, 55));
+                        painter.setPen(QPen(QColor(255, 210, 50), 1));
+                        painter.drawRoundedRect(eqBox, 1, 1);
+                        painter.setPen(QColor(255, 220, 80));
+                        painter.drawText(eqBox, Qt::AlignCenter, QString::fromStdString(ew->getDisplayName()));
+                    } else {
+                        painter.setBrush(QColor(28, 28, 38));
+                        painter.setPen(QPen(QColor(60, 60, 75), 1));
+                        painter.drawRoundedRect(eqBox, 1, 1);
+                    }
                 }
             } else {
                 // 空槽：透明填充 + 白色边框
@@ -1274,14 +1444,14 @@ void Synera::renderEquipDrops(QPainter& painter)
 
     // 标题
     QFont titleFont;
-    titleFont.setPixelSize(11);
+    titleFont.setPixelSize(10);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(QColor(160, 160, 180));
     painter.drawText(startX, dropY - 2, "Equipment Drops");
 
     m_equipDropRects.clear();
-    int slotW = 42, slotH = 28, slotGap = 3;
+    int slotW = 38, slotH = 24, slotGap = 3;
 
     for (int i = 0; i < MAX_EQUIP_DROPS; ++i) {
         QRect rc(startX + i * (slotW + slotGap), dropY + 8, slotW, slotH);
@@ -1296,7 +1466,7 @@ void Synera::renderEquipDrops(QPainter& painter)
             QString txt = QString::fromStdString(m_equipDrops[i]->getDisplayName());
             painter.setPen(QColor(255, 220, 80));
             QFont ef;
-            ef.setPixelSize(8);
+            ef.setPixelSize(7);
             ef.setBold(true);
             painter.setFont(ef);
             painter.drawText(rc, Qt::AlignCenter, txt);
@@ -1308,15 +1478,16 @@ void Synera::renderEquipDrops(QPainter& painter)
         }
     }
 
-    // pending equip hint
-    if (m_pendingEquip) {
+    // pending/dragged equip hint
+    Weapon* hintWeapon = m_draggedWeapon ? m_draggedWeapon : m_pendingEquip;
+    if (hintWeapon) {
         painter.setPen(QColor(255, 210, 80));
         QFont hintFont;
-        hintFont.setPixelSize(9);
+        hintFont.setPixelSize(8);
         hintFont.setBold(true);
         painter.setFont(hintFont);
-        QString hint = QString("Click hero to equip: %1")
-            .arg(QString::fromStdString(m_pendingEquip->getDisplayName()));
+        QString hint = QString("Drag onto hero to equip: %1")
+            .arg(QString::fromStdString(hintWeapon->getDisplayName()));
         painter.drawText(startX, dropY + slotH + 22, hint);
     }
 }
@@ -1329,35 +1500,138 @@ int Synera::findEquipDropAt(const QPoint& pixel) const
     return -1;
 }
 
+Unit* Synera::findBoardEquipSlotAt(const QPoint& pixel, EquipType& outType) const
+{
+    for (int y = 0; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (!dynamic_cast<Hero*>(u)) continue;
+            QRect rc = cellRect(x, y);
+            int boxH = 9, boxGap = 1;
+            int boxStartY = rc.top() + 2;
+            int maxSlots = u->getMaxEquipSlots();
+            QFont eqFont;
+            eqFont.setPixelSize(6);
+            eqFont.setBold(true);
+            QFontMetrics fm(eqFont);
+            // 计算统一宽度（与渲染一致）
+            int maxBoxW = 14;
+            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                EquipType et = static_cast<EquipType>(ei);
+                Weapon* ew = u->getEquip(et);
+                if (!ew && ei >= maxSlots) continue;
+                if (ew) {
+                    int w = fm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 4;
+                    if (w > maxBoxW) maxBoxW = w;
+                }
+            }
+            if (pixel.x() < rc.right() - maxBoxW - 2 || pixel.x() > rc.right()) continue;
+            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                EquipType et = static_cast<EquipType>(ei);
+                Weapon* ew = u->getEquip(et);
+                if (!ew && ei >= maxSlots) continue;
+                QRect boxRect(rc.right() - maxBoxW - 2, boxStartY + ei * (boxH + boxGap), maxBoxW, boxH);
+                if (boxRect.contains(pixel)) {
+                    outType = et;
+                    return u;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+Unit* Synera::findRecycleEquipSlotAt(const QPoint& pixel, EquipType& outType) const
+{
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            int idx = row * 8 + col;
+            Unit* u = m_recycleSlots[idx];
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (!dynamic_cast<Hero*>(u)) continue;
+            QRect rc = recycleSlotRect(row, col);
+            int eqBoxH = 8, eqBoxGap = 1;
+            int eqBoxStartY = rc.top() + 2;
+            int maxSlots = u->getMaxEquipSlots();
+            QFont eqFont;
+            eqFont.setPixelSize(6);
+            QFontMetrics fm(eqFont);
+            // 计算统一宽度（与渲染一致）
+            int maxEqBoxW = 12;
+            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                EquipType et = static_cast<EquipType>(ei);
+                Weapon* ew = u->getEquip(et);
+                if (!ew && ei >= maxSlots) continue;
+                if (ew) {
+                    int w = fm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 3;
+                    if (w > maxEqBoxW) maxEqBoxW = w;
+                }
+            }
+            if (pixel.x() < rc.right() - maxEqBoxW - 2 || pixel.x() > rc.right()) continue;
+            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                EquipType et = static_cast<EquipType>(ei);
+                Weapon* ew = u->getEquip(et);
+                if (!ew && ei >= maxSlots) continue;
+                QRect eqBox(rc.right() - maxEqBoxW - 2, eqBoxStartY + ei * (eqBoxH + eqBoxGap), maxEqBoxW, eqBoxH);
+                if (eqBox.contains(pixel)) {
+                    outType = et;
+                    return u;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 拖拽幽灵
 // ═══════════════════════════════════════════════════════════════
 
 void Synera::renderDragGhost(QPainter& painter)
 {
-    if (!m_draggedUnit) return;
+    if (m_draggedUnit) {
+        QRect unitRect(m_dragCurrentPos.x() - CELL_SIZE / 2,
+                       m_dragCurrentPos.y() - CELL_SIZE / 2,
+                       CELL_SIZE, CELL_SIZE);
 
-    QRect unitRect(m_dragCurrentPos.x() - CELL_SIZE / 2,
-                   m_dragCurrentPos.y() - CELL_SIZE / 2,
-                   CELL_SIZE, CELL_SIZE);
+        painter.save();
+        painter.setOpacity(0.75);
 
-    painter.save();
-    painter.setOpacity(0.75);
+        bool isHero = dynamic_cast<Hero*>(m_draggedUnit) != nullptr;
+        UnitType t = m_draggedUnit->getType();
+        painter.setBrush(typeFillColor(t, isHero));
+        painter.setPen(QPen(QColor(255, 255, 100), 2));
+        painter.drawRoundedRect(unitRect, 8, 8);
 
-    bool isHero = dynamic_cast<Hero*>(m_draggedUnit) != nullptr;
-    UnitType t = m_draggedUnit->getType();
-    painter.setBrush(typeFillColor(t, isHero));
-    painter.setPen(QPen(QColor(255, 255, 100), 2));
-    painter.drawRoundedRect(unitRect, 8, 8);
+        painter.setPen(Qt::white);
+        QFont f;
+        f.setPixelSize(18);
+        f.setBold(true);
+        painter.setFont(f);
+        painter.drawText(unitRect, Qt::AlignCenter, typeLabel(t));
 
-    painter.setPen(Qt::white);
-    QFont f;
-    f.setPixelSize(20);
-    f.setBold(true);
-    painter.setFont(f);
-    painter.drawText(unitRect, Qt::AlignCenter, typeLabel(t));
+        painter.restore();
+    }
 
-    painter.restore();
+    if (m_draggedWeapon) {
+        int gw = 48, gh = 28;
+        QRect gearRect(m_dragCurrentPos.x() - gw / 2,
+                       m_dragCurrentPos.y() - gh / 2, gw, gh);
+        painter.save();
+        painter.setOpacity(0.8);
+        painter.setBrush(QColor(45, 40, 60));
+        painter.setPen(QPen(QColor(255, 210, 50), 2));
+        painter.drawRoundedRect(gearRect, 4, 4);
+        painter.setPen(QColor(255, 220, 80));
+        QFont gf;
+        gf.setPixelSize(10);
+        gf.setBold(true);
+        painter.setFont(gf);
+        painter.drawText(gearRect, Qt::AlignCenter,
+                         QString::fromStdString(m_draggedWeapon->getDisplayName()));
+        painter.restore();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1371,7 +1645,7 @@ void Synera::renderUI(QPainter& painter)
     // ── 顶部信息栏：HP(左) 关卡(中) 金币(右) ──
     int infoY = 20;
     QFont infoFont;
-    infoFont.setPixelSize(17);
+    infoFont.setPixelSize(15);
     infoFont.setBold(true);
     painter.setFont(infoFont);
 
@@ -1383,7 +1657,7 @@ void Synera::renderUI(QPainter& painter)
     // 关卡 - 棋盘上方中间
     painter.setPen(QColor(255, 210, 80));
     QFont lvlFont;
-    lvlFont.setPixelSize(18);
+    lvlFont.setPixelSize(16);
     lvlFont.setBold(true);
     painter.setFont(lvlFont);
     QString lvlText = QString("Level %1 / %2").arg(m_currentLevel).arg(MAX_LEVEL);
@@ -1399,7 +1673,7 @@ void Synera::renderUI(QPainter& painter)
     int boardHeroCount = countBoardHeroes();
     painter.setPen(QColor(160, 200, 255));
     QFont popFont;
-    popFont.setPixelSize(14);
+    popFont.setPixelSize(12);
     popFont.setBold(true);
     painter.setFont(popFont);
     QString popText = QString("Pop: %1/%2").arg(boardHeroCount).arg(m_populationCap);
@@ -1407,7 +1681,7 @@ void Synera::renderUI(QPainter& painter)
 
     // ── 阶段标题 ──
     QFont uiFont;
-    uiFont.setPixelSize(16);
+    uiFont.setPixelSize(14);
     uiFont.setBold(true);
     painter.setFont(uiFont);
 
@@ -1436,7 +1710,7 @@ void Synera::renderUI(QPainter& painter)
 
     // ── 开始战斗按钮 ──
     if (m_phase == GamePhase::Preparation && !m_gameOver) {
-        int btnW = 170, btnH = 40;
+        int btnW = 150, btnH = 36;
         int btnX = textX, btnY = BOARD_OFFSET_Y + 55;
         m_startButtonRect = QRect(btnX, btnY, btnW, btnH);
 
@@ -1454,7 +1728,7 @@ void Synera::renderUI(QPainter& painter)
 
         painter.setPen(Qt::white);
         QFont btnFont;
-        btnFont.setPixelSize(15);
+        btnFont.setPixelSize(13);
         btnFont.setBold(true);
         painter.setFont(btnFont);
         painter.drawText(m_startButtonRect, Qt::AlignCenter, "Start Battle");
@@ -1462,7 +1736,7 @@ void Synera::renderUI(QPainter& painter)
         if (!hasBoardHero) {
             painter.setPen(QColor(200, 140, 40));
             QFont hintFont;
-            hintFont.setPixelSize(11);
+            hintFont.setPixelSize(10);
             painter.setFont(hintFont);
             painter.drawText(textX, btnY + btnH + 18, "Buy & drag units to the board");
         }
@@ -1472,7 +1746,7 @@ void Synera::renderUI(QPainter& painter)
     int legendY = m_phase == GamePhase::Preparation
         ? m_startButtonRect.bottom() + 55 : BOARD_OFFSET_Y + 75;
     QFont legFont;
-    legFont.setPixelSize(11);
+    legFont.setPixelSize(10);
     painter.setFont(legFont);
     painter.setPen(QColor(170, 170, 190));
     painter.drawText(textX, legendY, "Legend:");
@@ -1496,14 +1770,14 @@ void Synera::renderUI(QPainter& painter)
     int unitListY = legendY + 20 + 8 * 18 + 20;
     painter.setPen(QColor(190, 190, 210));
     QFont listTitleFont;
-    listTitleFont.setPixelSize(13);
+    listTitleFont.setPixelSize(11);
     listTitleFont.setBold(true);
     painter.setFont(listTitleFont);
     painter.drawText(textX, unitListY, "Alive Units:");
 
     unitListY += 22;
     QFont listFont;
-    listFont.setPixelSize(10);
+    listFont.setPixelSize(9);
     painter.setFont(listFont);
     for (auto& u : m_units) {
         if (u->isDisappeared() || u->isDead()) continue;
@@ -1521,7 +1795,7 @@ void Synera::renderUI(QPainter& painter)
     // ── 关卡失败覆盖文字 ──
     if (m_showLevelLoss && m_phase == GamePhase::Preparation) {
         QFont failFont;
-        failFont.setPixelSize(36);
+        failFont.setPixelSize(30);
         failFont.setBold(true);
         painter.setFont(failFont);
         painter.setPen(QColor(255, 60, 60));
@@ -1535,11 +1809,11 @@ void Synera::renderUI(QPainter& painter)
     int helpY = unitListY + 16;
     painter.setPen(QColor(140, 140, 160));
     QFont helpFont;
-    helpFont.setPixelSize(11);
+    helpFont.setPixelSize(10);
     painter.setFont(helpFont);
     if (m_phase == GamePhase::Preparation) {
         painter.drawText(textX, helpY, "Click recruit slots to buy (left)");
-        painter.drawText(textX, helpY + 16, "Purchased heroes appear in recycle area");
+        painter.drawText(textX, helpY + 16, "Drag equip onto heroes to equip");
         painter.drawText(textX, helpY + 32, "Drag from recycle to board / info to sell");
         painter.drawText(textX, helpY + 48, "F5 Save  F9 Load  R Reset");
     } else {
@@ -1631,6 +1905,7 @@ void Synera::mousePressEvent(QMouseEvent *event)
                     Unit* u = createUnitFromPool(m_recruitSlots[recruitIdx].type, true);
                     m_recycleSlots[emptySlot] = u;
                     m_recruitSlots[recruitIdx].empty = true;
+                    checkAutoStarUp();
                 }
             }
             return;
@@ -1646,28 +1921,19 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 装备掉落槽点击拾取
-        int dropIdx = findEquipDropAt(pos);
-        if (dropIdx >= 0 && dropIdx < (int)m_equipDrops.size() && m_equipDrops[dropIdx]) {
-            if (!m_pendingEquip) {
-                m_pendingEquip = m_equipDrops[dropIdx];
-                m_equipDrops[dropIdx] = nullptr;
-                // 清理空槽
-                m_equipDrops.erase(
-                    std::remove(m_equipDrops.begin(), m_equipDrops.end(), nullptr),
-                    m_equipDrops.end());
+        // 装备区 / 英雄装备槽 — 开始拖拽装备
+        if (!m_draggedUnit && !m_draggedWeapon) {
+            int dropIdx = findEquipDropAt(pos);
+            if (dropIdx >= 0 && dropIdx < (int)m_equipDrops.size() && m_equipDrops[dropIdx]) {
+                processWeaponDragStart(pos);
+                return;
             }
-            return;
-        }
-
-        // 有待装备物品时，点击棋盘英雄进行装备
-        if (m_pendingEquip) {
-            Unit* clickedHero = findUnitAtPixel(pos);
-            if (clickedHero && dynamic_cast<Hero*>(clickedHero) && !clickedHero->isDisappeared()) {
-                if (clickedHero->equip(m_pendingEquip))
-                    m_pendingEquip = nullptr;
+            // 点击英雄装备槽卸下
+            EquipType dummyType;
+            if (findBoardEquipSlotAt(pos, dummyType) || findRecycleEquipSlotAt(pos, dummyType)) {
+                processWeaponDragStart(pos);
+                if (m_draggedWeapon) return;
             }
-            return;
         }
 
         processDragStart(pos);
@@ -1676,7 +1942,7 @@ void Synera::mousePressEvent(QMouseEvent *event)
 
 void Synera::mouseMoveEvent(QMouseEvent *event)
 {
-    if (m_draggedUnit) {
+    if (m_draggedUnit || m_draggedWeapon) {
         m_dragCurrentPos = event->pos();
         update();
     }
@@ -1686,8 +1952,129 @@ void Synera::mouseMoveEvent(QMouseEvent *event)
 void Synera::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton) return;
+    if (m_draggedWeapon) processWeaponDrop(event->pos());
     if (m_draggedUnit) processDrop(event->pos());
     QMainWindow::mouseReleaseEvent(event);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 装备拖拽
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::processWeaponDragStart(const QPoint& mousePos)
+{
+    // 1) 装备掉落区
+    int dropIdx = findEquipDropAt(mousePos);
+    if (dropIdx >= 0 && dropIdx < (int)m_equipDrops.size() && m_equipDrops[dropIdx]) {
+        m_draggedWeapon = m_equipDrops[dropIdx];
+        m_equipDrops[dropIdx] = nullptr;
+        m_dragWeaponFromDropIdx = dropIdx;
+        m_dragWeaponFromUnit = nullptr;
+        m_dragCurrentPos = mousePos;
+        // 清理空槽
+        m_equipDrops.erase(
+            std::remove(m_equipDrops.begin(), m_equipDrops.end(), nullptr),
+            m_equipDrops.end());
+        return;
+    }
+
+    // 2) 棋盘英雄的装备槽
+    EquipType boardSlot;
+    Unit* boardHero = findBoardEquipSlotAt(mousePos, boardSlot);
+    if (boardHero && boardHero->getEquip(boardSlot)) {
+        m_draggedWeapon = boardHero->getEquip(boardSlot);
+        boardHero->unequip(boardSlot);
+        m_dragWeaponFromDropIdx = -1;
+        m_dragWeaponFromUnit = boardHero;
+        m_dragWeaponFromSlot = boardSlot;
+        m_dragCurrentPos = mousePos;
+        return;
+    }
+
+    // 3) 回收槽英雄的装备槽
+    EquipType recycleSlot;
+    Unit* recycleHero = findRecycleEquipSlotAt(mousePos, recycleSlot);
+    if (recycleHero && recycleHero->getEquip(recycleSlot)) {
+        m_draggedWeapon = recycleHero->getEquip(recycleSlot);
+        recycleHero->unequip(recycleSlot);
+        m_dragWeaponFromDropIdx = -1;
+        m_dragWeaponFromUnit = recycleHero;
+        m_dragWeaponFromSlot = recycleSlot;
+        m_dragCurrentPos = mousePos;
+        return;
+    }
+}
+
+void Synera::processWeaponDrop(const QPoint& mousePos)
+{
+    if (!m_draggedWeapon) return;
+
+    // 1) 放到棋盘英雄上
+    for (int y = 0; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (!dynamic_cast<Hero*>(u)) continue;
+            QRect rc = cellRect(x, y);
+            if (rc.contains(mousePos)) {
+                if (u->equip(m_draggedWeapon)) {
+                    m_draggedWeapon = nullptr;
+                    m_dragWeaponFromDropIdx = -1;
+                    m_dragWeaponFromUnit = nullptr;
+                    update();
+                    return;
+                }
+                // 装备失败（槽位满或类型冲突），返还来源
+                break;
+            }
+        }
+    }
+
+    // 2) 放到回收槽英雄上
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 8; ++col) {
+            int idx = row * 8 + col;
+            Unit* u = m_recycleSlots[idx];
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (!dynamic_cast<Hero*>(u)) continue;
+            QRect rc = recycleSlotRect(row, col);
+            if (rc.contains(mousePos)) {
+                if (u->equip(m_draggedWeapon)) {
+                    m_draggedWeapon = nullptr;
+                    m_dragWeaponFromDropIdx = -1;
+                    m_dragWeaponFromUnit = nullptr;
+                    update();
+                    return;
+                }
+                break;
+            }
+        }
+    }
+
+    // 3) 放回装备掉落区
+    int dropTargetIdx = findEquipDropAt(mousePos);
+    if (dropTargetIdx >= 0 && (int)m_equipDrops.size() < MAX_EQUIP_DROPS) {
+        m_equipDrops.push_back(m_draggedWeapon);
+        m_draggedWeapon = nullptr;
+        m_dragWeaponFromDropIdx = -1;
+        m_dragWeaponFromUnit = nullptr;
+        update();
+        return;
+    }
+
+    // 4) 归还来源
+    if (m_dragWeaponFromUnit) {
+        m_dragWeaponFromUnit->equip(m_draggedWeapon);
+    } else if (m_dragWeaponFromDropIdx >= 0) {
+        if (m_dragWeaponFromDropIdx < (int)m_equipDrops.size())
+            m_equipDrops[m_dragWeaponFromDropIdx] = m_draggedWeapon;
+        else
+            m_equipDrops.push_back(m_draggedWeapon);
+    }
+    m_draggedWeapon = nullptr;
+    m_dragWeaponFromDropIdx = -1;
+    m_dragWeaponFromUnit = nullptr;
+    update();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1696,6 +2083,8 @@ void Synera::mouseReleaseEvent(QMouseEvent *event)
 
 void Synera::processDragStart(const QPoint& mousePos)
 {
+    if (m_draggedWeapon) return; // 正在拖拽装备时不启动单位拖拽
+
     // 1) 回收槽
     int recycleIdx = findRecycleSlotAt(mousePos);
     if (recycleIdx >= 0 && m_recycleSlots[recycleIdx] != nullptr) {
@@ -1741,37 +2130,10 @@ void Synera::processDrop(const QPoint& mousePos)
         }
     }
 
-    // ── 放回回收槽 (含升星) ──
+    // ── 放回回收槽 ──
     int recycleIdx = findRecycleSlotAt(mousePos);
     if (recycleIdx >= 0) {
-        Unit* slotUnit = m_recycleSlots[recycleIdx];
-        if (slotUnit) {
-            // Check for star-up in recycle slot
-            Hero* h1 = dynamic_cast<Hero*>(m_draggedUnit);
-            Hero* h2 = dynamic_cast<Hero*>(slotUnit);
-            if (h1 && h2
-                && m_draggedUnit->getName() == slotUnit->getName()
-                && m_draggedUnit->getStarLevel() / 2 == slotUnit->getStarLevel() / 2
-                && m_draggedUnit->getStarLevel() < 6
-                && slotUnit->getStarLevel() < 6) {
-                int newStarLevel = std::max(m_draggedUnit->getStarLevel(), slotUnit->getStarLevel()) + 1;
-                UnitType type = m_draggedUnit->getType();
-                m_draggedUnit->setDisappeared(true);
-                slotUnit->setDisappeared(true);
-                m_recycleSlots[recycleIdx] = nullptr;
-                Unit* newUnit = createUpgradedHero(type, newStarLevel);
-                m_recycleSlots[recycleIdx] = newUnit;
-                if (type == UnitType::Assassin) {
-                    for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
-                        newUnit->gainMana();
-                }
-                m_draggedUnit = nullptr;
-                m_dragFromShopIndex = -1;
-                m_dragFromRecycleIndex = -1;
-                update();
-                return;
-            }
-        } else {
+        if (!m_recycleSlots[recycleIdx]) {
             m_recycleSlots[recycleIdx] = m_draggedUnit;
             m_draggedUnit = nullptr;
             m_dragFromShopIndex = -1;
@@ -1783,7 +2145,6 @@ void Synera::processDrop(const QPoint& mousePos)
 
     // ── 放到棋盘 ──
     int bestGx = -1, bestGy = -1, bestOverlap = 0;
-    int starUpGx = -1, starUpGy = -1, bestStarUpOverlap = 0;
     for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
         for (int x = 0; x < Board::SIZE; ++x) {
             QRect cr = cellRect(x, y);
@@ -1791,44 +2152,15 @@ void Synera::processDrop(const QPoint& mousePos)
             if (inter.isEmpty()) continue;
             int overlap = inter.width() * inter.height();
             if (overlap <= unitArea / 2) continue;
-
-            if (m_board.isOccupied(x, y)) {
-                Unit* occupant = m_board.getUnitAt(x, y);
-                if (occupant && dynamic_cast<Hero*>(occupant)
-                    && dynamic_cast<Hero*>(m_draggedUnit)
-                    && occupant->getName() == m_draggedUnit->getName()
-                    && occupant->getStarLevel() / 2 == m_draggedUnit->getStarLevel() / 2
-                    && occupant->getStarLevel() < 6
-                    && m_draggedUnit->getStarLevel() < 6
-                    && overlap > bestStarUpOverlap) {
-                    bestStarUpOverlap = overlap;
-                    starUpGx = x; starUpGy = y;
-                }
-            } else {
-                if (overlap > bestOverlap) {
-                    bestOverlap = overlap;
-                    bestGx = x; bestGy = y;
-                }
+            if (m_board.isOccupied(x, y)) continue;
+            if (overlap > bestOverlap) {
+                bestOverlap = overlap;
+                bestGx = x; bestGy = y;
             }
         }
     }
 
-    if (starUpGx >= 0) {
-        if (tryStarUp(starUpGx, starUpGy, m_draggedUnit)) {
-            m_dragFromShopIndex = -1;
-            m_dragFromRecycleIndex = -1;
-        } else {
-            // Star-up failed — return dragged unit to source
-            if (m_dragFromRecycleIndex >= 0) {
-                m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
-            } else {
-                m_board.placeUnit(m_draggedUnit, m_draggedUnit->getPosition().x,
-                                  m_draggedUnit->getPosition().y);
-            }
-            m_dragFromShopIndex = -1;
-            m_dragFromRecycleIndex = -1;
-        }
-    } else if (bestGx >= 0) {
+    if (bestGx >= 0) {
         // 检查人口上限（仅当拖拽来源不是棋盘时）
         if (m_dragFromRecycleIndex >= 0) {
             if (countBoardHeroes() >= m_populationCap) {

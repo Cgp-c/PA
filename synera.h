@@ -66,6 +66,7 @@ private:
     Unit* createUnitFromPool(UnitType type, bool isHero, int starLevel = 0, bool isBoss = false);
     Unit* createUpgradedHero(UnitType type, int starLevel);
     bool tryStarUp(int boardX, int boardY, Unit* draggedUnit);
+    void checkAutoStarUp();
 
     void saveGame(const QString& filePath);
     void loadGame(const QString& filePath);
@@ -86,6 +87,12 @@ private:
 
     void processDragStart(const QPoint& mousePos);
     void processDrop(const QPoint& mousePos);
+    void processWeaponDrop(const QPoint& mousePos);
+    void processWeaponDragStart(const QPoint& mousePos);
+
+    // 装备槽点击检测
+    Unit* findBoardEquipSlotAt(const QPoint& pixel, EquipType& outType) const;
+    Unit* findRecycleEquipSlotAt(const QPoint& pixel, EquipType& outType) const;
 
     // 自动战斗（每帧调用）
     void processCombatFrame();
@@ -143,6 +150,12 @@ private:
     int m_dragFromShopIndex;                // -1=board, -2=recycle, >=0=recruit index
     int m_dragFromRecycleIndex;             // recycle slot index (0-15)
 
+    // 装备拖拽
+    Weapon* m_draggedWeapon;
+    int m_dragWeaponFromDropIdx;            // equip drop index, -1 if from hero
+    Unit* m_dragWeaponFromUnit;             // hero unequipped from, nullptr if from drop
+    EquipType m_dragWeaponFromSlot;         // equip type slot on hero
+
     // 装备掉落
     std::vector<Weapon*> m_equipDrops;
     Weapon* m_pendingEquip;
@@ -172,21 +185,21 @@ private:
     void flushDamageEvents(const std::vector<Unit*>& alive);
     int fastestAttackSpeed() const;
 
-    static constexpr int CELL_SIZE = 64;
-    static constexpr int BOARD_OFFSET_X = 160;
-    static constexpr int BOARD_OFFSET_Y = 64;
+    static constexpr int CELL_SIZE = 56;
+    static constexpr int BOARD_OFFSET_X = 148;
+    static constexpr int BOARD_OFFSET_Y = 56;
     static constexpr int BOARD_PIXEL_SIZE = CELL_SIZE * Board::SIZE;
-    static constexpr int LEFT_PANEL_X = 10;
-    static constexpr int LEFT_PANEL_W = 138;
-    static constexpr int INFO_PANEL_Y = 86;
-    static constexpr int INFO_PANEL_H = 56;
+    static constexpr int LEFT_PANEL_X = 8;
+    static constexpr int LEFT_PANEL_W = 124;
+    static constexpr int INFO_PANEL_Y = 76;
+    static constexpr int INFO_PANEL_H = 48;
     static constexpr int INFO_SPACING = 4;
-    static constexpr int RECRUIT_START_Y = 360;
-    static constexpr int RECRUIT_SLOT_H = 40;
+    static constexpr int RECRUIT_START_Y = 318;
+    static constexpr int RECRUIT_SLOT_H = 36;
     static constexpr int RECRUIT_SPACING = 4;
-    static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 20;
-    static constexpr int RECYCLE_SLOT_W = 52;
-    static constexpr int RECYCLE_SLOT_H = 48;
+    static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 16;
+    static constexpr int RECYCLE_SLOT_W = 44;
+    static constexpr int RECYCLE_SLOT_H = 40;
     static constexpr int RECYCLE_SPACING = 4;
     static constexpr int BURNING_INTERVAL = 60;
 };
