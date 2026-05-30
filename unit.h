@@ -24,11 +24,12 @@ class Board;
 
 class Unit {
 public:
-    static constexpr int MAX_MANA = 5;
+    static constexpr int BASE_MAX_MANA = 100;
+    static constexpr int MANA_PER_POINT = 20;
 
     Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
          int moveSpeed = 30, int attackSpeed = 60, int startMana = 0,
-         int maxMana = MAX_MANA, int maxMana2 = 0);
+         int maxMana = BASE_MAX_MANA, int maxMana2 = 0);
     virtual ~Unit() = default;
 
     virtual int attack(Unit& target);
@@ -43,6 +44,7 @@ public:
     // 法力值
     int getMana() const;
     int getMaxMana() const;
+    void setMana(int mana);
     void gainMana();
     void resetMana();
 
@@ -90,7 +92,7 @@ public:
     int getEquipBonusDamage() const;
     int getEquipBonusHp() const;
     double getEquipSpeedMultiplier() const;
-    int getEquipSkillManaCost() const;
+    double getEquipManaCapMultiplier() const;
     int getEquipBonusRange() const;
 
     // 速度 / 计时器
@@ -101,6 +103,28 @@ public:
     void incrementTimers();
     void resetMoveTimer();
     void resetAttackTimer();
+
+    // 羁绊效果
+    void resetBondEffects();
+    void applyBondHpMult(double mult);
+    void applyBondHealMult(double mult);
+    void applyBondRangeBonus(int bonus);
+    void applyBondManaMod(int mod);
+    void applyBondAtkBonus(int bonus);
+    void revertBondHpMult(double mult);
+    void revertBondHealMult(double mult);
+    void revertBondRangeBonus(int bonus);
+    void revertBondManaMod(int mod);
+    void revertBondAtkBonus(int bonus);
+
+    double getBondHpMult() const { return m_bondHpMult; }
+    double getBondHealMult() const { return m_bondHealMult; }
+    int getBondRangeBonus() const { return m_bondRangeBonus; }
+    int getBondManaMod() const { return m_bondManaMod; }
+    int getBondAtkBonus() const { return m_bondAtkBonus; }
+
+    void setClone(bool c) { m_isClone = c; }
+    bool isClone() const { return m_isClone; }
 
 protected:
     std::string m_name;
@@ -121,6 +145,14 @@ protected:
     int m_attackSpeed;
     int m_moveTimer;
     int m_attackTimer;
+
+    // 羁绊效果
+    double m_bondHpMult = 1.0;
+    double m_bondHealMult = 1.0;
+    int m_bondRangeBonus = 0;
+    int m_bondManaMod = 0;
+    int m_bondAtkBonus = 0;
+    bool m_isClone = false;
 };
 
 #endif // UNIT_H

@@ -58,15 +58,18 @@ int Unit::heal(int amount)
 // ─── 法力值 ──────────────────────────────────────────────────
 
 int Unit::getMana() const { return m_mana; }
+void Unit::setMana(int mana) { m_mana = std::min(mana, getMaxMana()); }
 
 int Unit::getMaxMana() const
 {
-    int cost = getEquipSkillManaCost();
-    return cost > 0 ? cost : m_maxMana;
+    int base = m_maxMana + m_bondManaMod;
+    double mult = getEquipManaCapMultiplier();
+    return static_cast<int>(base * mult);
 }
 void Unit::gainMana()
 {
-    if (m_mana < getMaxMana()) ++m_mana;
+    int cap = getMaxMana();
+    m_mana = std::min(m_mana + MANA_PER_POINT, cap);
 }
 void Unit::resetMana() { m_mana = 0; }
 
@@ -109,7 +112,7 @@ void Unit::tickBurning()
 
 std::string Unit::getName() const { return m_name; }
 int Unit::getHp() const { return m_hp; }
-int Unit::getMaxHp() const { return m_maxHp + getEquipBonusHp(); }
+int Unit::getMaxHp() const { return static_cast<int>((m_maxHp + getEquipBonusHp()) * m_bondHpMult); }
 Position Unit::getPosition() const { return m_pos; }
 UnitType Unit::getType() const { return m_type; }
 int Unit::getStarLevel() const { return m_starLevel; }
@@ -128,9 +131,9 @@ bool Unit::equip(Weapon* weapon)
     if (m_equipment[idx]) return false; // 已有同类装备
     if (getEquippedCount() >= getMaxEquipSlots()) return false; // 装备位已满
     m_equipment[idx] = weapon;
-    // 防御装加成生命值
+    // 防御装加成生命值（考虑羁绊倍率）
     if (weapon->getEquipType() == EquipType::Defense)
-        m_hp += weapon->getBonusHp();
+        m_hp += static_cast<int>(weapon->getBonusHp() * m_bondHpMult);
     return true;
 }
 
@@ -140,7 +143,7 @@ void Unit::unequip(EquipType type)
     if (!m_equipment[idx]) return;
     // 卸下防御装时扣除加成生命
     if (type == EquipType::Defense) {
-        m_hp -= m_equipment[idx]->getBonusHp();
+        m_hp -= static_cast<int>(m_equipment[idx]->getBonusHp() * m_bondHpMult);
         if (m_hp < 1) m_hp = 1;
     }
     m_equipment[idx] = nullptr;
@@ -182,10 +185,10 @@ double Unit::getEquipSpeedMultiplier() const
     return w ? w->getSpeedMultiplier() : 1.0;
 }
 
-int Unit::getEquipSkillManaCost() const
+double Unit::getEquipManaCapMultiplier() const
 {
     auto* w = m_equipment[static_cast<int>(EquipType::Mana)];
-    return w ? w->getSkillManaCost() : 0;
+    return w ? w->getManaCapMultiplier() : 1.0;
 }
 
 int Unit::getEquipBonusRange() const
@@ -212,3 +215,45 @@ void Unit::incrementTimers()
 
 void Unit::resetMoveTimer() { m_moveTimer = 0; }
 void Unit::resetAttackTimer() { m_attackTimer = 0; }
+
+// ─── 羁绊效果 ──────────────────────────────────────────────────
+
+void Unit::resetBondEffects()
+{
+    if (m_bondHpMult != 1.0) {
+        int oldMax = static_cast<int>((m_maxHp + getEquipBonusHp()) * m_bondHpMult);
+        m_bondHpMult = 1.0;
+        int newMax = m_maxHp + getEquipBonusHp();
+        m_hp = std::min(m_hp * newMax / std::max(1, oldMax), newMax);
+    }
+    m_bondHealMult = 1.0;
+    m_bondRangeBonus = 0;
+    m_bondManaMod = 0;
+    m_bondAtkBonus = 0;
+}
+
+void Unit::applyBondHpMult(double mult)
+{
+    int oldMax = static_cast<int>((m_maxHp + getEquipBonusHp()) * m_bondHpMult);
+    m_bondHpMult *= mult;
+    int newMax = static_cast<int>((m_maxHp + getEquipBonusHp()) * m_bondHpMult);
+    m_hp = std::min(m_hp * newMax / std::max(1, oldMax), newMax);
+}
+
+void Unit::applyBondHealMult(double mult) { m_bondHealMult *= mult; }
+void Unit::applyBondRangeBonus(int bonus) { m_bondRangeBonus += bonus; }
+void Unit::applyBondManaMod(int mod) { m_bondManaMod += mod; }
+void Unit::applyBondAtkBonus(int bonus) { m_bondAtkBonus += bonus; }
+
+void Unit::revertBondHpMult(double mult)
+{
+    int oldMax = static_cast<int>((m_maxHp + getEquipBonusHp()) * m_bondHpMult);
+    m_bondHpMult /= mult;
+    int newMax = static_cast<int>((m_maxHp + getEquipBonusHp()) * m_bondHpMult);
+    m_hp = std::min(m_hp * newMax / std::max(1, oldMax), newMax);
+}
+
+void Unit::revertBondHealMult(double mult) { m_bondHealMult /= mult; }
+void Unit::revertBondRangeBonus(int bonus) { m_bondRangeBonus -= bonus; }
+void Unit::revertBondManaMod(int mod) { m_bondManaMod -= mod; }
+void Unit::revertBondAtkBonus(int bonus) { m_bondAtkBonus -= bonus; }

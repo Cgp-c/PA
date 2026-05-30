@@ -34,13 +34,13 @@ SupportEnemy::SupportEnemy(int starLevel, int x, int y)
 
 AssassinEnemy::AssassinEnemy(int starLevel, int x, int y)
     : Enemy("E-Assassin", 15 * (starLevel / 2 + 1), 15 * (starLevel / 2 + 1),
-            x, y, UnitType::Assassin, 60, 80, Unit::MAX_MANA)
+            x, y, UnitType::Assassin, 60, 80, Unit::BASE_MAX_MANA)
 {
     m_starLevel = starLevel;
 }
 
 BossEnemy::BossEnemy(int x, int y)
-    : Enemy("E-Boss", 500, 500, x, y, UnitType::Boss, 120, 120, 0, 3, 5)
+    : Enemy("E-Boss", 500, 500, x, y, UnitType::Boss, 120, 120, 0, 60, 100)
 {
 }
 

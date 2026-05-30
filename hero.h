@@ -15,8 +15,8 @@ class WarriorHero : public Hero {
     static constexpr int BASE_SKILL_DMG = 80;
 public:
     WarriorHero(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return 1 + getEquipBonusRange(); }
-    int getAttackDamage() const override { return BASE_ATK * (m_starLevel / 2 + 1); }
+    int getAttackRange() const override { return 1 + getEquipBonusRange() + getBondRangeBonus(); }
+    int getAttackDamage() const override { return BASE_ATK * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
@@ -25,8 +25,8 @@ class MageHero : public Hero {
     static constexpr int BASE_ATK = 10;
 public:
     MageHero(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return 4 + getEquipBonusRange(); }
-    int getAttackDamage() const override { return BASE_ATK * (m_starLevel / 2 + 1); }
+    int getAttackRange() const override { return 4 + getEquipBonusRange() + getBondRangeBonus(); }
+    int getAttackDamage() const override { return BASE_ATK * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
@@ -36,9 +36,9 @@ class SupportHero : public Hero {
     static constexpr int BASE_SKILL_HEAL = 30;
 public:
     SupportHero(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return 2 + getEquipBonusRange(); }
+    int getAttackRange() const override { return 2 + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return 0; }
-    int getHealAmount() const override { return BASE_HEAL * (m_starLevel / 2 + 1); }
+    int getHealAmount() const override { return static_cast<int>(BASE_HEAL * (m_starLevel / 2 + 1) * getBondHealMult()); }
     bool canHeal() const override { return true; }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
@@ -49,8 +49,8 @@ class AssassinHero : public Hero {
     static constexpr int BASE_SKILL_DMG = 80;
 public:
     AssassinHero(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return 1 + getEquipBonusRange(); }
-    int getAttackDamage() const override { return BASE_ATK * (m_starLevel / 2 + 1); }
+    int getAttackRange() const override { return 1 + getEquipBonusRange() + getBondRangeBonus(); }
+    int getAttackDamage() const override { return BASE_ATK * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
 

@@ -33,7 +33,7 @@ SupportHero::SupportHero(int starLevel, int x, int y)
 
 AssassinHero::AssassinHero(int starLevel, int x, int y)
     : Hero("A-Assassin", BASE_HP * (starLevel / 2 + 1), BASE_HP * (starLevel / 2 + 1),
-           x, y, UnitType::Assassin, 60, 80, Unit::MAX_MANA)
+           x, y, UnitType::Assassin, 60, 80, Unit::BASE_MAX_MANA)
 {
     m_starLevel = starLevel;
 }

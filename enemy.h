@@ -7,7 +7,7 @@ class Enemy : public Unit {
 public:
     Enemy(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
           int moveSpeed, int attackSpeed, int startMana = 0,
-          int maxMana = Unit::MAX_MANA, int maxMana2 = 0);
+          int maxMana = Unit::BASE_MAX_MANA, int maxMana2 = 0);
 };
 
 class WarriorEnemy : public Enemy {
@@ -17,6 +17,7 @@ public:
     int getAttackDamage() const override { return 20 * (m_starLevel / 2 + 1); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };
+
 
 class MageEnemy : public Enemy {
 public:

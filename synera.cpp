@@ -31,7 +31,7 @@ Synera::Synera(QWidget *parent)
     , m_frameCounter(0)
     , m_currentLevel(1)
     , m_playerHp(100)
-    , m_gold(1360)
+    , m_gold(8000)
     , m_pendingGold(0)
     , m_recycleSlots(16, nullptr)
     , m_draggedUnit(nullptr)
@@ -82,7 +82,7 @@ void Synera::initGame()
     m_frameCounter = 0;
     m_currentLevel = 1;
     m_playerHp = 100;
-    m_gold = 1360;
+    m_gold = 8000;
     m_pendingGold = 0;
     m_populationCap = 5;
 
@@ -251,8 +251,7 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
 
     // Mana: Assassin gets full, others start at 0
     if (type == UnitType::Assassin) {
-        for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
-            newUnit->gainMana();
+        newUnit->setMana(newUnit->getMaxMana());
     } else {
         newUnit->resetMana();
     }
@@ -361,8 +360,7 @@ void Synera::checkAutoStarUp()
                 m_recycleSlots[emptySlot] = newUnit;
 
             if (type == UnitType::Assassin) {
-                for (int i = newUnit->getMana(); i < Unit::MAX_MANA; ++i)
-                    newUnit->gainMana();
+                newUnit->setMana(newUnit->getMaxMana());
             }
 
             units.erase(units.begin(), units.begin() + 3);
@@ -424,11 +422,12 @@ void Synera::startBattle()
     }
 
     m_showLevelLoss = false;
-    m_equipDropCap = 2 + m_currentLevel;
+    m_equipDropCap = m_currentLevel + 1;
     m_equipDropCount = 0;
     m_hitEffects.clear();
     m_slashEffects.clear();
     m_pendingDamageEvents.clear();
+    for (int i = 0; i < 5; ++i) m_bondActive[i] = false; // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
 }
@@ -443,6 +442,14 @@ void Synera::endLevel(bool playerWon)
     m_hitEffects.clear();
     m_slashEffects.clear();
     m_pendingDamageEvents.clear();
+
+    // 清理所有刺客分身并重置羁绊效果
+    removeAssassinClones();
+    for (auto& u : m_units) {
+        if (!u->isDead() && !u->isDisappeared())
+            u->resetBondEffects();
+    }
+    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
 
     if (playerWon) {
         // 收集场上存活英雄并按星数、类型排序
@@ -514,13 +521,32 @@ void Synera::endLevel(bool playerWon)
                     u->setDisappeared(true);
             }
 
-        // 场上英雄全部消失
-        for (int y = 0; y < Board::SIZE; ++y)
+        // 场上英雄移回回收槽保留
+        std::vector<Unit*> survivingHeroes;
+        for (int y = 0; y < Board::SIZE; ++y) {
             for (int x = 0; x < Board::SIZE; ++x) {
                 Unit* u = m_board.getUnitAt(x, y);
-                if (u && dynamic_cast<Hero*>(u) != nullptr)
-                    u->setDisappeared(true);
+                if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
+                if (u->isDead() || u->isDisappeared()) continue;
+                survivingHeroes.push_back(u);
             }
+        }
+        for (Unit* u : survivingHeroes) {
+            u->resetMoveTimer();
+            u->resetAttackTimer();
+            bool placed = false;
+            for (int i = 0; i < 16; ++i) {
+                if (m_recycleSlots[i] == nullptr) {
+                    m_recycleSlots[i] = u;
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed)
+                m_board.removeUnit(u->getPosition().x, u->getPosition().y);
+            else
+                u->setDisappeared(true);
+        }
 
         // 若还有血量进入下一关，仍获得基础金币
         if (m_playerHp > 0)
@@ -811,6 +837,7 @@ void Synera::paintEvent(QPaintEvent *event)
     renderEquipDrops(painter);
     renderDragGhost(painter);
     renderUI(painter);
+    renderBonds(painter);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -971,20 +998,20 @@ void Synera::renderUnits(QPainter& painter)
             painter.drawText(barBg, Qt::AlignCenter,
                              QString("%1/%2").arg(unit->getHp()).arg(unit->getMaxHp()));
 
-            // 法力值圆点
-            int dotR = 3;
-            int dotSpacing = 9;
-            int dotY = barBg.top() - dotR - 3;
-            int unitMaxMana = unit->getMaxMana();
-            int totalDotW = unitMaxMana * dotSpacing - (dotSpacing - dotR * 2);
-            int dotStartX = ur.center().x() - totalDotW / 2;
-            for (int iDot = 0; iDot < unitMaxMana; ++iDot) {
-                int cx = dotStartX + iDot * dotSpacing;
-                bool filled = (iDot < unit->getMana());
-                painter.setBrush(filled ? QColor(240, 240, 240) : QColor(60, 60, 60));
-                painter.setPen(QPen(QColor(150, 150, 150), 1));
-                painter.drawEllipse(QPoint(cx, dotY), dotR, dotR);
-            }
+            // 法力值条
+            int manaBarH = 4;
+            int manaBarY = barBg.top() - manaBarH - 2;
+            int manaMax = unit->getMaxMana();
+            double manaRatio = manaMax > 0 ? (double)unit->getMana() / manaMax : 0;
+            if (manaRatio > 1.0) manaRatio = 1.0;
+            QRect manaBarBg(ur.left() + 2, manaBarY, ur.width() - 4, manaBarH);
+            painter.setBrush(QColor(15, 15, 35));
+            painter.setPen(Qt::NoPen);
+            painter.drawRoundedRect(manaBarBg, 1, 1);
+
+            QRect manaBarFill(manaBarBg.left(), manaBarY, (int)(manaBarBg.width() * manaRatio), manaBarH);
+            painter.setBrush(QColor(50, 120, 240));
+            painter.drawRoundedRect(manaBarFill, 1, 1);
 
             // 装备框（右侧5格）
             if (isHero) {
@@ -1841,7 +1868,8 @@ int Synera::countBoardHeroes() const
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (u && !u->isDead() && !u->isDisappeared()
-                && dynamic_cast<Hero*>(u) != nullptr)
+                && dynamic_cast<Hero*>(u) != nullptr
+                && !u->isClone())
                 ++count;
         }
     return count;
@@ -2215,23 +2243,13 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
 
 void Synera::processAssassinSkills(std::vector<Unit*>& alive)
 {
-    // 收集有技能且范围内有敌方的刺客
     std::vector<Unit*> skillAssassins;
     for (Unit* u : alive) {
         if (u->isDead() || u->isDisappeared()) continue;
         if (u->getType() != UnitType::Assassin) continue;
+        if (u->isClone()) continue;
         if (u->getMana() < u->getMaxMana()) continue;
-        bool isHero = dynamic_cast<Hero*>(u) != nullptr;
-        bool hasTarget = false;
-        for (Unit* eu : alive) {
-            if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
-            bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
-            if (euIsHero == isHero) continue;
-            if (manhattanDist(u->getPosition(), eu->getPosition()) <= 2) {
-                hasTarget = true; break;
-            }
-        }
-        if (hasTarget) skillAssassins.push_back(u);
+        skillAssassins.push_back(u);
     }
     if (skillAssassins.empty()) return;
 
@@ -2240,37 +2258,41 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
     for (Unit* assassin : skillAssassins) {
         if (deadSet.count(assassin)) continue;
         if (assassin->isDead() || assassin->isDisappeared()) continue;
+        if (assassin->getMana() < assassin->getMaxMana()) continue;
 
         bool isHero = dynamic_cast<Hero*>(assassin) != nullptr;
-        int dmg = static_cast<int>(80 * (1 + (assassin->getStarLevel() / 2) * 0.5));
         Position ap = assassin->getPosition();
 
-        // 索敌：绝对距离最近，横向距离破平
+        // 索敌：最近敌方，距离 ≤2
         Unit* target = nullptr;
-        int bestDistSq = 999999, bestXDist = 999;
+        int bestDist = 999;
         for (Unit* eu : alive) {
             if (eu == assassin || eu->isDead() || eu->isDisappeared()) continue;
             if (deadSet.count(eu)) continue;
             bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
             if (euIsHero == isHero) continue;
-            if (manhattanDist(ap, eu->getPosition()) > 2) continue;
-            int dx = ap.x - eu->getPosition().x;
-            int dy = ap.y - eu->getPosition().y;
-            int distSq = dx * dx + dy * dy;
-            int xDist = std::abs(dx);
-            if (distSq < bestDistSq || (distSq == bestDistSq && xDist < bestXDist)) {
-                bestDistSq = distSq; bestXDist = xDist; target = eu;
-            }
+            int d = manhattanDist(ap, eu->getPosition());
+            if (d <= 2 && d < bestDist) { bestDist = d; target = eu; }
         }
-        if (!target) continue; // 无有效目标，保留技能点
+        if (!target) continue;
 
-        // 互杀检测：目标也是有技能的刺客
+        // 互杀检测：两人都是满技能刺客且互为最近目标
         bool mutualKill = false;
         if (target->getType() == UnitType::Assassin && target->getMana() >= target->getMaxMana()) {
-            for (Unit* sa : skillAssassins) {
-                if (sa == target && !deadSet.count(target)) {
-                    mutualKill = true; break;
-                }
+            bool tIsHero = dynamic_cast<Hero*>(target) != nullptr;
+            Unit* tTarget = nullptr;
+            int tBestDist = 999;
+            Position tp = target->getPosition();
+            for (Unit* eu : alive) {
+                if (eu == target || eu->isDead() || eu->isDisappeared()) continue;
+                if (deadSet.count(eu)) continue;
+                bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+                if (euIsHero == tIsHero) continue;
+                int d = manhattanDist(tp, eu->getPosition());
+                if (d <= 2 && d < tBestDist) { tBestDist = d; tTarget = eu; }
+            }
+            if (tTarget == assassin) {
+                mutualKill = true;
             }
         }
 
@@ -2292,18 +2314,36 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
             continue;
         }
 
-        // 对目标造成伤害
-        int beforeHp = target->getHp();
-        target->takeDamage(dmg);
-        int dealt = beforeHp - target->getHp();
-        m_pendingDamageEvents[target].push_back(-dealt);
-        assassin->resetMana();
+        // 正常释放技能：记录位置和 HP 用于伤害显示
+        Position posBefore = assassin->getPosition();
+        std::map<Unit*, int> hpBefore;
+        for (Unit* au : alive) {
+            if (!au->isDead() && !au->isDisappeared())
+                hpBefore[au] = au->getHp();
+        }
+        std::vector<Unit*> enemiesBefore;
+        for (Unit* eu : alive) {
+            if (!eu->isDead() && !eu->isDisappeared() && dynamic_cast<Enemy*>(eu))
+                enemiesBefore.push_back(eu);
+        }
 
-        if (target->isDead()) {
-            deadSet.insert(target);
-            bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
-            if (tEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
-            m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+        assassin->useSkill(m_board, alive);
+
+        // 仅当确实瞬移了（位置改变）才重置法力值，否则保留技能点
+        if (!(assassin->getPosition() == posBefore))
+            assassin->resetMana();
+
+        for (auto& kv : hpBefore) {
+            if (kv.first->isDead() || kv.first->isDisappeared()) continue;
+            int diff = kv.first->getHp() - kv.second;
+            if (diff != 0)
+                m_pendingDamageEvents[kv.first].push_back(diff);
+        }
+        for (Unit* eu : enemiesBefore) {
+            if (eu->isDead()) {
+                m_pendingGold += enemyGoldValue(eu);
+                tryEquipDrop();
+            }
         }
     }
 }
@@ -2331,6 +2371,9 @@ void Synera::processCombatFrame()
             if (u && !u->isDead() && !u->isDisappeared())
                 alive.push_back(u);
         }
+
+    // 羁绊判定（每帧最开始时）
+    checkAndApplyBonds(alive);
 
     // 燃烧伤害（每 BURNING_INTERVAL 帧）
     bool burningFrame = (m_frameCounter % BURNING_INTERVAL == 0);
@@ -2430,6 +2473,11 @@ void Synera::processCombatFrame()
                 int healed = healTarget->heal(u->getHealAmount());
                 m_pendingDamageEvents[healTarget].push_back(healed);
                 u->gainMana();
+                if (m_bondActive[1] && u->getType() == UnitType::Mage && dynamic_cast<Hero*>(u) && !u->isClone()) {
+                    for (Unit* mu : alive)
+                        if (mu != u && mu->getType() == UnitType::Mage && dynamic_cast<Hero*>(mu) && !mu->isClone())
+                            mu->gainMana();
+                }
                 u->resetAttackTimer();
             } else if (!inRange) {
                 u->resetAttackTimer();
@@ -2459,6 +2507,11 @@ void Synera::processCombatFrame()
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                     int dealt = u->attack(*target);
                     u->gainMana();
+                    if (m_bondActive[1] && u->getType() == UnitType::Mage && dynamic_cast<Hero*>(u) && !u->isClone()) {
+                        for (Unit* mu : alive)
+                            if (mu != u && mu->getType() == UnitType::Mage && dynamic_cast<Hero*>(mu) && !mu->isClone())
+                                mu->gainMana();
+                    }
                     m_pendingDamageEvents[target].push_back(-dealt);
 
                     if (target->isDead()) {
@@ -2692,6 +2745,251 @@ bool Synera::canAttack(Unit* attacker, Unit* target) const
 {
     return manhattanDist(attacker->getPosition(), target->getPosition())
            <= attacker->getAttackRange();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 羁绊系统
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<Unit*>& mages,
+                              std::vector<Unit*>& supports, std::vector<Unit*>& assassins, std::vector<Unit*>& alive)
+{
+    switch (idx) {
+    case 0: // 战斗不息
+        for (Unit* w : warriors) w->applyBondHpMult(2.0);
+        break;
+    case 1: // 吟咏魔典 — 共享技能点（在 gainMana 时实时分发）
+        break;
+    case 2: // 生生不息
+        for (Unit* s : supports) {
+            s->applyBondHealMult(2.0);
+            s->applyBondRangeBonus(1);
+        }
+        break;
+    case 3: // 暗夜幻影
+        spawnAssassinClones(assassins, alive);
+        break;
+    case 4: // 全军出击
+        for (Unit* u : alive) {
+            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            u->applyBondManaMod(-20);
+            u->applyBondAtkBonus(20);
+            u->applyBondHpMult(1.5);
+        }
+        break;
+    }
+}
+
+void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
+{
+    switch (idx) {
+    case 0: // 战斗不息
+        for (Unit* u : alive) {
+            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (u->getType() == UnitType::Warrior && !u->isClone())
+                u->revertBondHpMult(2.0);
+        }
+        break;
+    case 1: // 吟咏魔典 — 无持久效果
+        break;
+    case 2: // 生生不息
+        for (Unit* u : alive) {
+            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (u->getType() == UnitType::Support && !u->isClone()) {
+                u->revertBondHealMult(2.0);
+                u->revertBondRangeBonus(1);
+            }
+        }
+        break;
+    case 3: // 暗夜幻影
+        removeAssassinClones();
+        break;
+    case 4: // 全军出击
+        for (Unit* u : alive) {
+            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            u->revertBondManaMod(-20);
+            u->revertBondAtkBonus(20);
+            u->revertBondHpMult(1.5);
+        }
+        break;
+    }
+}
+
+void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
+{
+    // 统计棋盘上玩家方英雄类型
+    int warriorCount = 0, mageCount = 0, supportCount = 0, assassinCount = 0;
+    std::vector<Unit*> warriors, mages, supports, assassins;
+    for (Unit* u : alive) {
+        if (dynamic_cast<Hero*>(u) == nullptr) continue;
+        if (u->isClone()) continue;
+        switch (u->getType()) {
+            case UnitType::Warrior: ++warriorCount; warriors.push_back(u); break;
+            case UnitType::Mage: ++mageCount; mages.push_back(u); break;
+            case UnitType::Support: ++supportCount; supports.push_back(u); break;
+            case UnitType::Assassin: ++assassinCount; assassins.push_back(u); break;
+            default: break;
+        }
+    }
+
+    bool newBond[5];
+    newBond[0] = (warriorCount >= 3);
+    newBond[1] = (mageCount >= 2);
+    newBond[2] = (supportCount >= 2);
+    newBond[3] = (assassinCount >= 2);
+    newBond[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+
+    for (int i = 0; i < 5; ++i) {
+        if (newBond[i] && !m_bondActive[i]) {
+            // 羁绊激活
+            applyBondEffect(i, warriors, mages, supports, assassins, alive);
+        } else if (!newBond[i] && m_bondActive[i]) {
+            // 羁绊失效
+            revertBondEffect(i, alive);
+        }
+        m_bondActive[i] = newBond[i];
+    }
+}
+
+void Synera::previewBonds()
+{
+    // 准备阶段预览：只判定不生效
+    int warriorCount = 0, mageCount = 0, supportCount = 0, assassinCount = 0;
+    for (int y = 0; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (u->isClone()) continue;
+            switch (u->getType()) {
+                case UnitType::Warrior: ++warriorCount; break;
+                case UnitType::Mage: ++mageCount; break;
+                case UnitType::Support: ++supportCount; break;
+                case UnitType::Assassin: ++assassinCount; break;
+                default: break;
+            }
+        }
+    }
+    m_bondActive[0] = (warriorCount >= 3);
+    m_bondActive[1] = (mageCount >= 2);
+    m_bondActive[2] = (supportCount >= 2);
+    m_bondActive[3] = (assassinCount >= 2);
+    m_bondActive[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+}
+
+void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive)
+{
+    int cloneCount = static_cast<int>(assassins.size());
+
+    for (int i = 0; i < cloneCount && i < (int)assassins.size(); ++i) {
+        Unit* src = assassins[i];
+        int cloneStar = std::max(0, src->getStarLevel() - 2);
+
+        bool placed = false;
+        for (int attempt = 0; attempt < 50; ++attempt) {
+            int cx = std::rand() % Board::SIZE;
+            int cy = Board::SIZE / 2 + std::rand() % (Board::SIZE / 2);
+            if (!m_board.isOccupied(cx, cy)) {
+                Unit* clone = createUnitFromPool(UnitType::Assassin, true, cloneStar);
+                clone->setClone(true);
+                clone->setMana(0); // 分身从0法力值开始
+                m_board.placeUnit(clone, cx, cy);
+                alive.push_back(clone);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) {
+            for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
+                for (int x = 0; x < Board::SIZE; ++x) {
+                    if (!m_board.isOccupied(x, y)) {
+                        Unit* clone = createUnitFromPool(UnitType::Assassin, true, cloneStar);
+                        clone->setClone(true);
+                        clone->setMana(0);
+                        m_board.placeUnit(clone, x, y);
+                        alive.push_back(clone);
+                        placed = true;
+                        break;
+                    }
+                }
+                if (placed) break;
+            }
+        }
+    }
+}
+
+void Synera::removeAssassinClones()
+{
+    std::vector<Unit*> clonesToRemove;
+    for (auto& u : m_units) {
+        if (u->isClone() && u->getType() == UnitType::Assassin && !u->isDead() && !u->isDisappeared()) {
+            clonesToRemove.push_back(u.get());
+        }
+    }
+    for (Unit* c : clonesToRemove) {
+        m_board.removeUnit(c->getPosition().x, c->getPosition().y);
+        c->setDisappeared(true);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 羁绊 UI 渲染
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderBonds(QPainter& painter)
+{
+    // 准备阶段预览羁绊状态，战斗阶段由 processCombatFrame 实时判定
+    if (m_phase == GamePhase::Preparation)
+        previewBonds();
+
+    if (m_popUpgradeButtonRect.isNull()) return;
+    int bondStartY = m_popUpgradeButtonRect.bottom() + 10;
+    int bondX = LEFT_PANEL_X;
+    int bondW = LEFT_PANEL_W;
+
+    struct BondUIData {
+        const char* name;
+        const char* desc;
+    };
+    static const BondUIData bondData[5] = {
+        {"战斗不息", "3战士:生命翻倍"},
+        {"吟咏魔典", "2法师:共享技能点"},
+        {"生生不息", "2辅助:治疗翻倍+范围+1"},
+        {"暗夜幻影", "2刺客:生成分身(星-1)"},
+        {"全军出击", "4职齐:全属性上升"},
+    };
+
+    QFont nameFont;
+    nameFont.setPixelSize(8);
+    nameFont.setBold(true);
+    QFont descFont;
+    descFont.setPixelSize(6);
+
+    for (int i = 0; i < 5; ++i) {
+        int by = bondStartY + i * 28;
+        int boxSize = 8;
+        QRect boxRect(bondX, by + 2, boxSize, boxSize);
+
+        // 羁绊激活指示框
+        if (m_bondActive[i]) {
+            painter.setBrush(QColor(255, 180, 40));
+            painter.setPen(QPen(QColor(255, 220, 80), 1));
+        } else {
+            painter.setBrush(QColor(40, 40, 50));
+            painter.setPen(QPen(QColor(80, 80, 90), 1));
+        }
+        painter.drawRoundedRect(boxRect, 1, 1);
+
+        // 羁绊名称
+        painter.setFont(nameFont);
+        painter.setPen(m_bondActive[i] ? QColor(255, 200, 60) : QColor(140, 140, 160));
+        painter.drawText(bondX + boxSize + 4, by + 8, bondData[i].name);
+
+        // 羁绊描述
+        painter.setFont(descFont);
+        painter.setPen(m_bondActive[i] ? QColor(200, 170, 80) : QColor(100, 100, 120));
+        painter.drawText(bondX + boxSize + 4, by + 18, bondData[i].desc);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════

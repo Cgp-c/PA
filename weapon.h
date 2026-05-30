@@ -16,6 +16,7 @@ public:
     virtual double getSpeedMultiplier() const { return 1.0; }
     virtual int getSkillManaCost() const { return 0; }
     virtual int getBonusRange() const { return 0; }
+    virtual double getManaCapMultiplier() const { return 1.0; }
 };
 
 // ─── 攻击装 ──────────────────────────────────────────────
@@ -70,8 +71,8 @@ public:
 class BasicManaWeapon : public ManaWeapon {
 public:
     std::string getName() const override { return "Blue Crystal"; }
-    std::string getDisplayName() const override { return "\350\223\235\345\256\235\347\237\263"; } // 蓝宝石
-    int getSkillManaCost() const override { return 3; }
+    std::string getDisplayName() const override { return "\351\255\224\346\263\225\347\237\263"; } // 魔法石
+    double getManaCapMultiplier() const override { return 0.5; }
 };
 
 // ─── 攻击距离装 ──────────────────────────────────────────

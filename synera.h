@@ -80,6 +80,7 @@ private:
     void renderEquipDrops(QPainter& painter);
     void renderDragGhost(QPainter& painter);
     void renderUI(QPainter& painter);
+    void renderBonds(QPainter& painter);
 
     QRect cellRect(int x, int y) const;
     QRect recruitSlotRect(int index) const;
@@ -106,6 +107,15 @@ private:
     Position moveStepTowardAlly(const Position& from, const Position& to) const;
     bool canAttack(Unit* attacker, Unit* target) const;
     void checkLevelEnd();
+
+    // 羁绊系统
+    void checkAndApplyBonds(std::vector<Unit*>& alive);
+    void previewBonds();  // 准备阶段预览羁绊状态
+    void spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive);
+    void removeAssassinClones();
+    void applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<Unit*>& mages,
+                         std::vector<Unit*>& supports, std::vector<Unit*>& assassins, std::vector<Unit*>& alive);
+    void revertBondEffect(int idx, std::vector<Unit*>& alive);
 
     Unit* findUnitAt(int boardX, int boardY) const;
     Unit* findUnitAtPixel(const QPoint& pixel) const;
@@ -175,6 +185,9 @@ private:
     // 人口上限
     int m_populationCap;
     int countBoardHeroes() const;
+
+    // 羁绊状态
+    bool m_bondActive[5] = {false, false, false, false, false};
 
     // 视觉特效
     std::vector<HitEffect> m_hitEffects;
