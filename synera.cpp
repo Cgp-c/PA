@@ -705,7 +705,7 @@ void Synera::loadGame(const QString& filePath)
     initGame();
 
     // 恢复全局状态
-    m_gold = root["gold"].toInt(360);
+    m_gold = root["gold"].toInt(8000);
     m_currentLevel = root["currentLevel"].toInt(1);
     m_playerHp = root["playerHp"].toInt(100);
     m_pendingGold = root["pendingGold"].toInt(0);
@@ -725,9 +725,9 @@ void Synera::loadGame(const QString& filePath)
         auto t = static_cast<UnitType>(o["type"].toInt());
         int star = o["star"].toInt(0);
         Unit* u = createUnitFromPool(t, true, star);
-        u->setMaxHp(o["maxHp"].toInt(u->getMaxHp()));
+        // m_maxHp 由构造函数按 star 设定，无需覆写（覆写会导致装备 HP 重复计算）
         u->resetMana();
-        // 先恢复装备（防御装会影响HP），再设置HP
+        // 先恢复装备（防御装equip()会增加 m_hp），再 setHp 覆写为存档值
         QJsonArray equipArr = o["equips"].toArray();
         for (int ei = 0; ei < equipArr.size() && ei < static_cast<int>(EquipType::COUNT); ++ei) {
             if (equipArr[ei].isNull()) continue;
@@ -746,7 +746,7 @@ void Synera::loadGame(const QString& filePath)
             }
             if (wp) u->equip(wp);
         }
-        // 装备恢复后再设置HP（防御装equip()会给m_hp加bonus，setHp会覆写为存档值）
+        // 装备恢复后再设置HP（防御装equip()给m_hp加bonus后，setHp覆写为存档值）
         int savedHp = o["hp"].toInt(-1);
         if (savedHp >= 0) u->setHp(savedHp);
         int mana = o["mana"].toInt(0);
