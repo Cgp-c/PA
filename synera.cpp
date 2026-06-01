@@ -41,7 +41,7 @@ Synera::Synera(QWidget *parent)
     , m_dragWeaponFromDropIdx(-1)
     , m_dragWeaponFromUnit(nullptr)
     , m_dragWeaponFromSlot(EquipType::Attack)
-    , m_populationCap(5)
+    , m_populationCap(4)
     , m_pendingEquip(nullptr)
     , m_equipDropCap(0)
     , m_equipDropCount(0)
@@ -84,7 +84,7 @@ void Synera::initGame()
     m_playerHp = 100;
     m_gold = 8000;
     m_pendingGold = 0;
-    m_populationCap = 5;
+    m_populationCap = 4;
 
     // 初始化英雄信息面板：4 种类型
     m_shop.clear();
@@ -709,7 +709,7 @@ void Synera::loadGame(const QString& filePath)
     m_currentLevel = root["currentLevel"].toInt(1);
     m_playerHp = root["playerHp"].toInt(100);
     m_pendingGold = root["pendingGold"].toInt(0);
-    m_populationCap = root["populationCap"].toInt(5);
+    m_populationCap = root["populationCap"].toInt(4);
 
     // 恢复招募区
     QJsonArray shopArr = root["shop"].toArray();
@@ -2483,16 +2483,18 @@ void Synera::processCombatFrame()
                 u->resetAttackTimer();
             }
 
-            // 移动：优先接近受伤友方，否则靠近最近友方
+            // 移动：仅当目标不在攻击/治疗范围内才靠近
             if (u->getMoveTimer() >= u->getMoveSpeed()) {
-                if (healTarget) {
-                    Position next = moveStepToward(pos, healTarget->getPosition());
-                    if (!(next == pos)) moves.push_back({u, next});
-                } else {
-                    Unit* ally = findNearestAlly(u);
-                    if (ally) {
-                        Position next = moveStepTowardAlly(pos, ally->getPosition());
+                if (!inRange) {
+                    if (healTarget) {
+                        Position next = moveStepToward(pos, healTarget->getPosition());
                         if (!(next == pos)) moves.push_back({u, next});
+                    } else {
+                        Unit* ally = findNearestAlly(u);
+                        if (ally) {
+                            Position next = moveStepTowardAlly(pos, ally->getPosition());
+                            if (!(next == pos)) moves.push_back({u, next});
+                        }
                     }
                 }
                 u->resetMoveTimer();
@@ -2524,10 +2526,12 @@ void Synera::processCombatFrame()
                     u->resetAttackTimer();
                 }
 
-                // 移动（独立计时器）
+                // 移动（独立计时器）— 仅当目标不在攻击范围内
                 if (u->getMoveTimer() >= u->getMoveSpeed()) {
-                    Position next = moveStepToward(pos, target->getPosition());
-                    if (!(next == pos)) moves.push_back({u, next});
+                    if (!inRange) {
+                        Position next = moveStepToward(pos, target->getPosition());
+                        if (!(next == pos)) moves.push_back({u, next});
+                    }
                     u->resetMoveTimer();
                 }
             }
@@ -2706,13 +2710,14 @@ Position Synera::moveStepToward(const Position& from, const Position& to) const
     int dx = (to.x > from.x) ? 1 : (to.x < from.x) ? -1 : 0;
     int dy = (to.y > from.y) ? 1 : (to.y < from.y) ? -1 : 0;
 
-    if (dx != 0) {
-        Position next(from.x + dx, from.y);
+    // 优先前进（纵向），其次左右，最后后退 — 避免双方错位一格时镜像循环卡死
+    if (dy != 0) {
+        Position next(from.x, from.y + dy);
         if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
             return next;
     }
-    if (dy != 0) {
-        Position next(from.x, from.y + dy);
+    if (dx != 0) {
+        Position next(from.x + dx, from.y);
         if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
             return next;
     }
@@ -2822,7 +2827,6 @@ void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
     std::vector<Unit*> warriors, mages, supports, assassins;
     for (Unit* u : alive) {
         if (dynamic_cast<Hero*>(u) == nullptr) continue;
-        if (u->isClone()) continue;
         switch (u->getType()) {
             case UnitType::Warrior: ++warriorCount; warriors.push_back(u); break;
             case UnitType::Mage: ++mageCount; mages.push_back(u); break;
@@ -2860,7 +2864,6 @@ void Synera::previewBonds()
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u->isDead() || u->isDisappeared()) continue;
             if (dynamic_cast<Hero*>(u) == nullptr) continue;
-            if (u->isClone()) continue;
             switch (u->getType()) {
                 case UnitType::Warrior: ++warriorCount; break;
                 case UnitType::Mage: ++mageCount; break;
@@ -2883,7 +2886,7 @@ void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vecto
 
     for (int i = 0; i < cloneCount && i < (int)assassins.size(); ++i) {
         Unit* src = assassins[i];
-        int cloneStar = std::max(0, src->getStarLevel() - 2);
+        int cloneStar = std::max(0, src->getStarLevel() - 1);
 
         bool placed = false;
         for (int attempt = 0; attempt < 50; ++attempt) {
@@ -2893,6 +2896,12 @@ void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vecto
                 Unit* clone = createUnitFromPool(UnitType::Assassin, true, cloneStar);
                 clone->setClone(true);
                 clone->setMana(0); // 分身从0法力值开始
+                // 继承已激活的全体羁绊效果
+                if (m_bondActive[4]) {
+                    clone->applyBondManaMod(-20);
+                    clone->applyBondAtkBonus(20);
+                    clone->applyBondHpMult(1.5);
+                }
                 m_board.placeUnit(clone, cx, cy);
                 alive.push_back(clone);
                 placed = true;
@@ -2906,6 +2915,12 @@ void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vecto
                         Unit* clone = createUnitFromPool(UnitType::Assassin, true, cloneStar);
                         clone->setClone(true);
                         clone->setMana(0);
+                        // 继承已激活的全体羁绊效果
+                        if (m_bondActive[4]) {
+                            clone->applyBondManaMod(-20);
+                            clone->applyBondAtkBonus(20);
+                            clone->applyBondHpMult(1.5);
+                        }
                         m_board.placeUnit(clone, x, y);
                         alive.push_back(clone);
                         placed = true;

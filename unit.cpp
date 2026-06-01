@@ -17,6 +17,7 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_maxMana2(maxMana2)
     , m_burning(false)
     , m_burningTurns(0)
+    , m_burningDamage(10)
     , m_moveSpeed(moveSpeed)
     , m_attackSpeed(attackSpeed)
     , m_moveTimer(0)
@@ -93,16 +94,17 @@ void Unit::useSkill2(Board& board, std::vector<Unit*>& allUnits)
 bool Unit::isBurning() const { return m_burning; }
 int Unit::getBurningTurns() const { return m_burningTurns; }
 
-void Unit::applyBurning(int turns)
+void Unit::applyBurning(int turns, int damage)
 {
     m_burning = true;
     m_burningTurns = turns;
+    m_burningDamage = damage;
 }
 
 void Unit::tickBurning()
 {
     if (!m_burning) return;
-    takeDamage(10);
+    takeDamage(m_burningDamage);
     --m_burningTurns;
     if (m_burningTurns <= 0)
         m_burning = false;

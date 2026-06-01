@@ -61,7 +61,7 @@ public:
     // 燃烧状态
     bool isBurning() const;
     int getBurningTurns() const;
-    void applyBurning(int turns);
+    void applyBurning(int turns, int damage = 10);
     void tickBurning();
 
     std::string getName() const;
@@ -141,6 +141,7 @@ protected:
     int m_maxMana2;
     bool m_burning;
     int m_burningTurns;
+    int m_burningDamage = 10;
     int m_moveSpeed;
     int m_attackSpeed;
     int m_moveTimer;

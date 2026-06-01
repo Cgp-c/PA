@@ -69,7 +69,7 @@ void MageHero::useSkill(Board& board, std::vector<Unit*>& allUnits)
         int dx = std::abs(u->getPosition().x - m_pos.x);
         int dy = std::abs(u->getPosition().y - m_pos.y);
         if (dx <= 2 && dy <= 2) {
-            u->applyBurning(4);
+            u->applyBurning(4, 10 + m_starLevel * 5);
         }
     }
 }
