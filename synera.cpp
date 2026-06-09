@@ -3,6 +3,7 @@
 #include "hero.h"
 #include "enemy.h"
 #include "weapon.h"
+#include "equipsynthwindow.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -16,6 +17,10 @@
 #include <cmath>
 #include <algorithm>
 #include <set>
+//存档以后在战斗失败以后判定？？？存疑
+
+// 前向声明：合成配方查询
+static std::string getSynthesisResultName(const std::string& a, const std::string& b);
 
 // ═══════════════════════════════════════════════════════════════
 // 构造 / 析构
@@ -45,6 +50,7 @@ Synera::Synera(QWidget *parent)
     , m_pendingEquip(nullptr)
     , m_equipDropCap(0)
     , m_equipDropCount(0)
+    , m_equipSynthWindow(nullptr)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
@@ -59,7 +65,22 @@ Synera::Synera(QWidget *parent)
     m_frameClock.start();
 }
 
-Synera::~Synera() { delete ui; }
+Synera::~Synera()
+{
+    delete m_equipSynthWindow; // 主窗口析构时释放合成树窗口
+    delete ui;
+}
+
+void Synera::showEquipSynthWindow()
+{
+    if (!m_equipSynthWindow) {
+        // 延迟创建：首次点击按钮时才实例化
+        m_equipSynthWindow = new EquipSynthWindow(nullptr); // 不设 parent，完全独立
+    }
+    m_equipSynthWindow->show();
+    m_equipSynthWindow->raise();
+    m_equipSynthWindow->activateWindow();
+}
 
 // ═══════════════════════════════════════════════════════════════
 // 初始化
@@ -732,19 +753,8 @@ void Synera::loadGame(const QString& filePath)
         for (int ei = 0; ei < equipArr.size() && ei < static_cast<int>(EquipType::COUNT); ++ei) {
             if (equipArr[ei].isNull()) continue;
             std::string ename = equipArr[ei].toString().toStdString();
-            Weapon* wp = nullptr;
-            if (ename == "Iron Sword") {
-                auto w = std::make_unique<BasicAttackWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-            } else if (ename == "Chain Mail") {
-                auto w = std::make_unique<BasicDefenseWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-            } else if (ename == "Speed Gloves") {
-                auto w = std::make_unique<BasicSpeedWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-            } else if (ename == "Blue Crystal") {
-                auto w = std::make_unique<BasicManaWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-            } else if (ename == "Warhorse") {
-                auto w = std::make_unique<BasicRangeWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-            }
-            if (wp) u->equip(wp);
+        Weapon* wp = createWeaponByName(ename);
+        if (wp) u->equip(wp);
         }
         // 装备恢复后再设置HP（防御装equip()给m_hp加bonus后，setHp覆写为存档值）
         int savedHp = o["hp"].toInt(-1);
@@ -781,18 +791,7 @@ void Synera::loadGame(const QString& filePath)
     for (auto val : dropArr) {
         if (val.isNull()) { m_equipDrops.push_back(nullptr); continue; }
         std::string ename = val.toString().toStdString();
-        Weapon* wp = nullptr;
-        if (ename == "Iron Sword") {
-            auto w = std::make_unique<BasicAttackWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-        } else if (ename == "Chain Mail") {
-            auto w = std::make_unique<BasicDefenseWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-        } else if (ename == "Speed Gloves") {
-            auto w = std::make_unique<BasicSpeedWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-        } else if (ename == "Blue Crystal") {
-            auto w = std::make_unique<BasicManaWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-        } else if (ename == "Warhorse") {
-            auto w = std::make_unique<BasicRangeWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-        }
+        Weapon* wp = createWeaponByName(ename);
         m_equipDrops.push_back(wp);
     }
     m_equipDropCount = root["equipDropCount"].toInt(0);
@@ -1300,6 +1299,22 @@ void Synera::renderRecruitment(QPainter& painter)
     popBtnFont.setBold(true);
     painter.setFont(popBtnFont);
     painter.drawText(popBtnRect, Qt::AlignCenter, QString("Pop+ $%1").arg(popCost));
+
+    // 装备合成树按钮（人口升级按钮下方）
+    int synthBtnY = popBtnRect.bottom() + 8;
+    QRect synthBtnRect(LEFT_PANEL_X, synthBtnY, LEFT_PANEL_W, 22);
+    m_synthTreeButtonRect = synthBtnRect;
+
+    painter.setBrush(QColor(55, 55, 70));
+    painter.setPen(QPen(QColor(255, 210, 60), 1));
+    painter.drawRoundedRect(synthBtnRect, 4, 4);
+
+    painter.setPen(QColor(255, 210, 60));
+    QFont synthBtnFont;
+    synthBtnFont.setPixelSize(9);
+    synthBtnFont.setBold(true);
+    painter.setFont(synthBtnFont);
+    painter.drawText(synthBtnRect, Qt::AlignCenter, QString::fromUtf8("\350\243\205\345\244\207\345\220\210\346\210\220\346\240\221")); // 装备合成树
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1441,9 +1456,9 @@ void Synera::renderRecycleSlots(QPainter& painter)
 
 void Synera::tryEquipDrop()
 {
-    if (m_equipDropCount >= m_equipDropCap) return;
+    // 去掉每关获取上限，仅限制掉落区容量
     if ((int)m_equipDrops.size() >= MAX_EQUIP_DROPS) return;
-    int chance = 10 * m_currentLevel;
+    int chance = 10 * m_currentLevel + 5; // 基础概率 +5%
     if (chance > 100) chance = 100;
     if ((std::rand() % 100) >= chance) return;
 
@@ -1517,6 +1532,14 @@ void Synera::renderEquipDrops(QPainter& painter)
             .arg(QString::fromStdString(hintWeapon->getDisplayName()));
         painter.drawText(startX, dropY + slotH + 22, hint);
     }
+
+    // 合成提示
+    painter.setPen(QColor(180, 180, 100));
+    QFont synthNoteFont;
+    synthNoteFont.setPixelSize(7);
+    synthNoteFont.setBold(true);
+    painter.setFont(synthNoteFont);
+    painter.drawText(startX, dropY + slotH + 20, QString::fromUtf8("\346\257\217\346\254\241\345\215\207\347\272\247\350\243\205\345\244\207\351\234\200\350\246\201\350\200\227\350\264\271300\351\207\221\345\270\201")); // 每次升级装备需要耗费300金币
 }
 
 int Synera::findEquipDropAt(const QPoint& pixel) const
@@ -1949,6 +1972,12 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
+        // 装备合成树按钮
+        if (m_synthTreeButtonRect.contains(pos)) {
+            showEquipSynthWindow();
+            return;
+        }
+
         // 装备区 / 英雄装备槽 — 开始拖拽装备
         if (!m_draggedUnit && !m_draggedWeapon) {
             int dropIdx = findEquipDropAt(pos);
@@ -2045,6 +2074,12 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
             if (!dynamic_cast<Hero*>(u)) continue;
             QRect rc = cellRect(x, y);
             if (rc.contains(mousePos)) {
+                // 先尝试合成
+                if (trySynthesize(u, m_draggedWeapon)) {
+                    m_draggedWeapon = nullptr;
+                    update();
+                    return;
+                }
                 if (u->equip(m_draggedWeapon)) {
                     m_draggedWeapon = nullptr;
                     m_dragWeaponFromDropIdx = -1;
@@ -2067,6 +2102,12 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
             if (!dynamic_cast<Hero*>(u)) continue;
             QRect rc = recycleSlotRect(row, col);
             if (rc.contains(mousePos)) {
+                // 先尝试合成
+                if (trySynthesize(u, m_draggedWeapon)) {
+                    m_draggedWeapon = nullptr;
+                    update();
+                    return;
+                }
                 if (u->equip(m_draggedWeapon)) {
                     m_draggedWeapon = nullptr;
                     m_dragWeaponFromDropIdx = -1;
@@ -2079,9 +2120,35 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
         }
     }
 
-    // 3) 放回装备掉落区
+    // 3) 放到装备掉落区 — 先检查是否与目标槽已有装备合成
     int dropTargetIdx = findEquipDropAt(mousePos);
-    if (dropTargetIdx >= 0 && (int)m_equipDrops.size() < MAX_EQUIP_DROPS) {
+    if (dropTargetIdx >= 0 && dropTargetIdx < (int)m_equipDrops.size() && m_equipDrops[dropTargetIdx]) {
+        // 有目标装备：尝试合成
+        Weapon* targetWeapon = m_equipDrops[dropTargetIdx];
+        std::string resultName = getSynthesisResultName(m_draggedWeapon->getName(), targetWeapon->getName());
+        if (!resultName.empty() && m_gold >= 300) {
+            m_gold -= 300;
+            // 移除目标槽的装备
+            m_equipDrops[dropTargetIdx] = nullptr;
+            // 创建高级装备放入掉落区
+            Weapon* advanced = createWeaponByName(resultName);
+            if (advanced)
+                m_equipDrops[dropTargetIdx] = advanced;
+            // 清理空槽
+            m_equipDrops.erase(
+                std::remove(m_equipDrops.begin(), m_equipDrops.end(), nullptr),
+                m_equipDrops.end());
+            m_draggedWeapon = nullptr;
+            m_dragWeaponFromDropIdx = -1;
+            m_dragWeaponFromUnit = nullptr;
+            update();
+            return;
+        }
+        // 无法合成，继续往下走（放回或归还）
+    }
+
+    // 4) 放回装备掉落区（空槽）
+    if ((int)m_equipDrops.size() < MAX_EQUIP_DROPS) {
         m_equipDrops.push_back(m_draggedWeapon);
         m_draggedWeapon = nullptr;
         m_dragWeaponFromDropIdx = -1;
@@ -2090,7 +2157,7 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
         return;
     }
 
-    // 4) 归还来源
+    // 5) 归还来源
     if (m_dragWeaponFromUnit) {
         m_dragWeaponFromUnit->equip(m_draggedWeapon);
     } else if (m_dragWeaponFromDropIdx >= 0) {
@@ -2230,7 +2297,7 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
     for (Unit* u : alive) {
         if (u->isBurning()) {
             u->tickBurning();
-            if (u->isDead()) {
+            if (u->isDead() && !u->hasReviveTriggered()) {
                 if (dynamic_cast<Enemy*>(u) != nullptr) {
                     m_pendingGold += enemyGoldValue(u);
                     tryEquipDrop();
@@ -2301,16 +2368,20 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
             deadSet.insert(target);
             bool aEnemy = dynamic_cast<Enemy*>(assassin) != nullptr;
             bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
-            if (aEnemy) { m_pendingGold += enemyGoldValue(assassin); tryEquipDrop(); }
-            if (tEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
             m_pendingDamageEvents[assassin].push_back(-assassin->getHp());
             m_pendingDamageEvents[target].push_back(-target->getHp());
             assassin->takeDamage(assassin->getHp());
             target->takeDamage(target->getHp());
             assassin->resetMana();
             target->resetMana();
-            m_board.removeUnit(ap.x, ap.y);
-            m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+            if (!assassin->hasReviveTriggered()) {
+                if (aEnemy) { m_pendingGold += enemyGoldValue(assassin); tryEquipDrop(); }
+                m_board.removeUnit(ap.x, ap.y);
+            }
+            if (!target->hasReviveTriggered()) {
+                if (tEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
+                m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+            }
             continue;
         }
 
@@ -2335,12 +2406,13 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
 
         for (auto& kv : hpBefore) {
             if (kv.first->isDead() || kv.first->isDisappeared()) continue;
+            if (kv.first->hasReviveTriggered()) continue; // 复活触发，跳过死亡判定
             int diff = kv.first->getHp() - kv.second;
             if (diff != 0)
                 m_pendingDamageEvents[kv.first].push_back(diff);
         }
         for (Unit* eu : enemiesBefore) {
-            if (eu->isDead()) {
+            if (eu->isDead() && !eu->hasReviveTriggered()) {
                 m_pendingGold += enemyGoldValue(eu);
                 tryEquipDrop();
             }
@@ -2448,13 +2520,14 @@ void Synera::processCombatFrame()
 
                 for (auto& kv : hpBefore) {
                     if (kv.first->isDead() || kv.first->isDisappeared()) continue;
+                    if (kv.first->hasReviveTriggered()) continue;
                     int diff = kv.first->getHp() - kv.second;
                     if (diff != 0)
                         m_pendingDamageEvents[kv.first].push_back(diff);
                 }
 
                 for (Unit* eu : enemiesBeforeSkill) {
-                    if (eu->isDead()) {
+                    if (eu->isDead() && !eu->hasReviveTriggered()) {
                         m_pendingGold += enemyGoldValue(eu);
                         tryEquipDrop();
                     }
@@ -2516,7 +2589,7 @@ void Synera::processCombatFrame()
                     }
                     m_pendingDamageEvents[target].push_back(-dealt);
 
-                    if (target->isDead()) {
+                    if (target->isDead() && !target->hasReviveTriggered()) {
                         bool isEnemy = dynamic_cast<Enemy*>(target) != nullptr;
                         if (isEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
                         m_board.removeUnit(target->getPosition().x, target->getPosition().y);
@@ -2555,6 +2628,27 @@ void Synera::processCombatFrame()
                 alive.push_back(u);
         }
     flushDamageEvents(alive);
+
+    // 处理复活石触发：将复活单位移到我方半场
+    for (Unit* u : alive) {
+        if (u->hasReviveTriggered()) {
+            // 从我方半场找空位
+            bool placed = false;
+            for (int y = Board::SIZE - 1; y >= Board::SIZE / 2 && !placed; --y) {
+                for (int x = 0; x < Board::SIZE && !placed; ++x) {
+                    if (!m_board.isOccupied(x, y)) {
+                        Position oldPos = u->getPosition();
+                        m_board.removeUnit(oldPos.x, oldPos.y);
+                        m_board.placeUnit(u, x, y);
+                        placed = true;
+                    }
+                }
+            }
+            // 如果没空位，保持在原位（不清除触发标记，下次继续尝试）
+            if (placed)
+                u->clearReviveTriggered();
+        }
+    }
 
     checkLevelEnd();
 }
@@ -2948,7 +3042,159 @@ void Synera::removeAssassinClones()
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 羁绊 UI 渲染
+// 装备合成系统
+// ═══════════════════════════════════════════════════════════════
+
+// 合成配方查询：返回合成结果名称，若无法合成则返回空字符串
+static std::string getSynthesisResultName(const std::string& a, const std::string& b)
+{
+    // 按字母序排序两个名称以处理任意顺序
+    auto orderPair = [](const std::string& x, const std::string& y) -> std::pair<std::string, std::string> {
+        if (x < y) return {x, y};
+        return {y, x};
+    };
+    auto p = orderPair(a, b);
+
+    if (p.first == "Blue Crystal" && p.second == "Iron Sword")
+        return "Rune Greatsword";
+    if (p.first == "Iron Sword" && p.second == "Speed Gloves")
+        return "Swift Blade";
+    if (p.first == "Chain Mail" && p.second == "Iron Sword")
+        return "Thorns Armor";
+    if (p.first == "Chain Mail" && p.second == "Chain Mail")
+        return "Vitality Armor";
+    if (p.first == "Blue Crystal" && p.second == "Speed Gloves")
+        return "Gale Gloves";
+    if (p.first == "Blue Crystal" && p.second == "Chain Mail")
+        return "Revive Stone";
+    if (p.first == "Iron Sword" && p.second == "Warhorse")
+        return "Sniper Crossbow";
+    return "";
+}
+
+Weapon* Synera::createWeaponByName(const std::string& name)
+{
+    Weapon* wp = nullptr;
+    if (name == "Iron Sword") {
+        auto w = std::make_unique<BasicAttackWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Chain Mail") {
+        auto w = std::make_unique<BasicDefenseWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Speed Gloves") {
+        auto w = std::make_unique<BasicSpeedWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Blue Crystal") {
+        auto w = std::make_unique<BasicManaWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Warhorse") {
+        auto w = std::make_unique<BasicRangeWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Rune Greatsword") {
+        auto w = std::make_unique<RuneGreatsword>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Swift Blade") {
+        auto w = std::make_unique<SwiftBlade>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Thorns Armor") {
+        auto w = std::make_unique<ThornsArmor>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Vitality Armor") {
+        auto w = std::make_unique<VitalityArmor>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Gale Gloves") {
+        auto w = std::make_unique<GaleGloves>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Revive Stone") {
+        auto w = std::make_unique<ReviveStone>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    } else if (name == "Sniper Crossbow") {
+        auto w = std::make_unique<SniperCrossbow>(); wp = w.get(); m_weapons.push_back(std::move(w));
+    }
+    return wp;
+}
+
+bool Synera::trySynthesize(Unit* hero, Weapon* draggedWeapon)
+{
+    if (!hero || !draggedWeapon) return false;
+    if (m_gold < 300) return false;
+
+    // 找到英雄身上能与 draggedWeapon 合成的装备
+    Weapon* heroWeapon = nullptr;
+    EquipType heroSlot = EquipType::Attack;
+    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+        EquipType et = static_cast<EquipType>(ei);
+        Weapon* ew = hero->getEquip(et);
+        if (!ew) continue;
+        if (ew->getEquipType() == draggedWeapon->getEquipType()) continue; // 同类型不能合成
+        // 检查是否是基本装备（非高级）
+        std::string en = ew->getName();
+        bool isBasic = (en == "Iron Sword" || en == "Chain Mail" || en == "Speed Gloves"
+                     || en == "Blue Crystal" || en == "Warhorse");
+        if (isBasic) { heroWeapon = ew; heroSlot = et; break; }
+    }
+
+    if (!heroWeapon) return false;
+
+    std::string resultName = getSynthesisResultName(heroWeapon->getName(), draggedWeapon->getName());
+    if (resultName.empty()) return false;
+
+    // 扣金币
+    m_gold -= 300;
+
+    // 卸下英雄身上那个基础装备
+    hero->unequip(heroSlot);
+
+    // 拖拽的装备不会被装上（被消耗），设为 nullptr
+    m_draggedWeapon = nullptr;
+    m_dragWeaponFromDropIdx = -1;
+    m_dragWeaponFromUnit = nullptr;
+
+    // 创建高级装备并装到英雄身上
+    Weapon* advanced = createWeaponByName(resultName);
+    if (advanced)
+        hero->equip(advanced);
+
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 复活逻辑 (复活石)
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::reviveUnit(Unit* unit)
+{
+    if (!unit) return;
+    // 找到复活石并消耗
+    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+        EquipType et = static_cast<EquipType>(ei);
+        Weapon* ew = unit->getEquip(et);
+        if (ew && ew->hasRevive()) {
+            unit->unequip(et);
+            // 标记武器为消失（已被消耗）
+            break;
+        }
+    }
+
+    // 回满生命值
+    unit->setHp(unit->getMaxHp());
+    // 清空法力值
+    unit->resetMana();
+    unit->resetMana2();
+    // 重置燃烧状态（复活清除debuff）
+    // 不重置 move/attack timer，保持
+
+    // 从我方半场复活：优先从最后一行开始找空位
+    bool placed = false;
+    for (int y = Board::SIZE - 1; y >= Board::SIZE / 2 && !placed; --y) {
+        for (int x = 0; x < Board::SIZE && !placed; ++x) {
+            if (!m_board.isOccupied(x, y)) {
+                unit->setDisappeared(false);
+                // 如果之前在棋盘上，先移除旧位置
+                // reviveUnit 被调用时 unit 应该还在棋盘上且有位置
+                Position oldPos = unit->getPosition();
+                if (m_board.getUnitAt(oldPos.x, oldPos.y) == unit)
+                    m_board.removeUnit(oldPos.x, oldPos.y);
+                m_board.placeUnit(unit, x, y);
+                placed = true;
+            }
+        }
+    }
+
+    if (!placed) {
+        // 实在没位置就原地复活
+        unit->setDisappeared(false);
+    }
+}
 // ═══════════════════════════════════════════════════════════════
 
 void Synera::renderBonds(QPainter& painter)

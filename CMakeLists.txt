@@ -29,6 +29,8 @@ qt_add_executable(Synera
     weapon.cpp
     board.h
     board.cpp
+    equipsynthwindow.h
+    equipsynthwindow.cpp
 )
 
 target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)

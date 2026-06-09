@@ -8,6 +8,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/Synera.dir/board.cpp.obj.d"
   "CMakeFiles/Synera.dir/enemy.cpp.obj"
   "CMakeFiles/Synera.dir/enemy.cpp.obj.d"
+  "CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj"
+  "CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj.d"
   "CMakeFiles/Synera.dir/hero.cpp.obj"
   "CMakeFiles/Synera.dir/hero.cpp.obj.d"
   "CMakeFiles/Synera.dir/main.cpp.obj"

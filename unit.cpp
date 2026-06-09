@@ -31,7 +31,17 @@ int Unit::attack(Unit& target)
     int beforeHp = target.getHp();
     target.takeDamage(damage);
     int dealt = beforeHp - target.getHp();
-    if (target.isDead())
+
+    // 反伤：目标受到伤害后反弹给攻击者
+    double thorns = target.getEquipThornsReflect();
+    if (thorns > 0.0 && dealt > 0) {
+        int reflectDmg = static_cast<int>(dealt * thorns);
+        if (reflectDmg > 0)
+            takeDamage(reflectDmg);
+    }
+
+    // 目标复活石触发则不死
+    if (target.isDead() && !target.hasReviveTriggered())
         target.setDisappeared(true);
     return dealt;
 }
@@ -41,8 +51,30 @@ bool Unit::isDisappeared() const { return m_disappeared; }
 
 void Unit::takeDamage(int damage)
 {
-    m_hp -= damage;
-    if (m_hp < 0) m_hp = 0;
+    // 防御减伤（生命重甲等）
+    int defense = getEquipDefense();
+    int effectiveDmg = damage - defense;
+    if (effectiveDmg < 0) effectiveDmg = 0;
+    m_hp -= effectiveDmg;
+    if (m_hp <= 0) {
+        // 检查复活石
+        if (hasEquipRevive()) {
+            // 直接移除复活石（跳过 unequip 避免 HP 二次调整）
+            for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i) {
+                if (m_equipment[i] && m_equipment[i]->hasRevive()) {
+                    m_equipment[i] = nullptr;
+                    break;
+                }
+            }
+            // 回满生命值（getMaxHp 不再含复活石的 HP 加成）
+            m_hp = getMaxHp();
+            m_mana = 0;
+            m_mana2 = 0;
+            m_reviveTriggered = true;
+            return;
+        }
+        m_hp = 0;
+    }
 }
 
 void Unit::setDisappeared(bool disappeared) { m_disappeared = disappeared; }
@@ -51,7 +83,10 @@ int Unit::heal(int amount)
 {
     int beforeHp = m_hp;
     int effectiveMax = getMaxHp();
-    m_hp += amount;
+    // 受治疗倍率（生命重甲等装备效果）
+    double healMult = getEquipHealMultiplier();
+    int adjustedAmount = static_cast<int>(amount * healMult);
+    m_hp += adjustedAmount;
     if (m_hp > effectiveMax) m_hp = effectiveMax;
     return m_hp - beforeHp;
 }
@@ -63,14 +98,17 @@ void Unit::setMana(int mana) { m_mana = std::min(mana, getMaxMana()); }
 
 int Unit::getMaxMana() const
 {
-    int base = m_maxMana + m_bondManaMod;
+    int base = m_maxMana + m_bondManaMod + getEquipBonusMana();
     double mult = getEquipManaCapMultiplier();
-    return static_cast<int>(base * mult);
+    int result = static_cast<int>(base * mult);
+    if (result < 10) result = 10;
+    return result;
 }
 void Unit::gainMana()
 {
     int cap = getMaxMana();
-    m_mana = std::min(m_mana + MANA_PER_POINT, cap);
+    int regen = static_cast<int>(MANA_PER_POINT * getEquipManaRegenMultiplier());
+    m_mana = std::min(m_mana + regen, cap);
 }
 void Unit::resetMana() { m_mana = 0; }
 
@@ -133,9 +171,10 @@ bool Unit::equip(Weapon* weapon)
     if (m_equipment[idx]) return false; // 已有同类装备
     if (getEquippedCount() >= getMaxEquipSlots()) return false; // 装备位已满
     m_equipment[idx] = weapon;
-    // 防御装加成生命值（考虑羁绊倍率）
-    if (weapon->getEquipType() == EquipType::Defense)
-        m_hp += static_cast<int>(weapon->getBonusHp() * m_bondHpMult);
+    // 加成生命值（防御装或其他带 HP 的装备，考虑羁绊倍率）
+    int bonusHp = weapon->getBonusHp();
+    if (bonusHp > 0)
+        m_hp += static_cast<int>(bonusHp * m_bondHpMult);
     return true;
 }
 
@@ -143,9 +182,10 @@ void Unit::unequip(EquipType type)
 {
     int idx = static_cast<int>(type);
     if (!m_equipment[idx]) return;
-    // 卸下防御装时扣除加成生命
-    if (type == EquipType::Defense) {
-        m_hp -= static_cast<int>(m_equipment[idx]->getBonusHp() * m_bondHpMult);
+    // 卸下时扣除加成 HP
+    int bonusHp = m_equipment[idx]->getBonusHp();
+    if (bonusHp > 0) {
+        m_hp -= static_cast<int>(bonusHp * m_bondHpMult);
         if (m_hp < 1) m_hp = 1;
     }
     m_equipment[idx] = nullptr;
@@ -177,8 +217,11 @@ int Unit::getEquipBonusDamage() const
 
 int Unit::getEquipBonusHp() const
 {
-    auto* w = m_equipment[static_cast<int>(EquipType::Defense)];
-    return w ? w->getBonusHp() : 0;
+    int total = 0;
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i])
+            total += m_equipment[i]->getBonusHp();
+    return total;
 }
 
 double Unit::getEquipSpeedMultiplier() const
@@ -197,6 +240,69 @@ int Unit::getEquipBonusRange() const
 {
     auto* w = m_equipment[static_cast<int>(EquipType::Range)];
     return w ? w->getBonusRange() : 0;
+}
+
+int Unit::getEquipBonusHeal() const
+{
+    auto* w = m_equipment[static_cast<int>(EquipType::Attack)];
+    return w ? w->getBonusHeal() : 0;
+}
+
+int Unit::getEquipBonusMana() const
+{
+    int total = 0;
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i])
+            total += m_equipment[i]->getBonusMana();
+    return total;
+}
+
+double Unit::getEquipThornsReflect() const
+{
+    double total = 0.0;
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i])
+            total += m_equipment[i]->getThornsReflect();
+    return total;
+}
+
+int Unit::getEquipDefense() const
+{
+    int total = 0;
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i])
+            total += m_equipment[i]->getDefense();
+    return total;
+}
+
+double Unit::getEquipHealMultiplier() const
+{
+    double total = 1.0;
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i]) {
+            double m = m_equipment[i]->getHealMultiplier();
+            if (m > 1.0) total *= m;
+        }
+    return total;
+}
+
+double Unit::getEquipManaRegenMultiplier() const
+{
+    double total = 1.0;
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i]) {
+            double m = m_equipment[i]->getManaRegenMultiplier();
+            if (m > 1.0) total *= m;
+        }
+    return total;
+}
+
+bool Unit::hasEquipRevive() const
+{
+    for (int i = 0; i < static_cast<int>(EquipType::COUNT); ++i)
+        if (m_equipment[i] && m_equipment[i]->hasRevive())
+            return true;
+    return false;
 }
 
 int Unit::getMoveSpeed() const { return m_moveSpeed; }

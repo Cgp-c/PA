@@ -420,13 +420,13 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:\Users\cgp83\Desktop\PA\board.h C:\Users\cgp83\Desktop\PA\unit.h \
  C:\Users\cgp83\Desktop\PA\weapon.h C:\Users\cgp83\Desktop\PA\hero.h \
  C:\Users\cgp83\Desktop\PA\enemy.h \
+ C:\Users\cgp83\Desktop\PA\equipsynthwindow.h \
+ C:/Qt/6.11.0/mingw_64/include/QtWidgets/QWidget \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QPainter \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qpainter.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qtextoption.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qpen.h \
- C:/Qt/6.11.0/mingw_64/include/QtGui/QPainterPath \
- C:/Qt/6.11.0/mingw_64/include/QtGui/qpainterpath.h \
- C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QCloseEvent \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qevent.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qiodevice.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/qurl.h \
@@ -443,6 +443,10 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:/Qt/6.11.0/mingw_64/include/QtCore/QSizeF \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QTransform \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qscreen_platform.h \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QString \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QPainterPath \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/qpainterpath.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QKeyEvent \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QFont \
  C:/Qt/6.11.0/mingw_64/include/QtCore/QJsonDocument \

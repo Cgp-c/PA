@@ -38,7 +38,7 @@ public:
     SupportHero(int starLevel = 0, int x = 0, int y = 0);
     int getAttackRange() const override { return 2 + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return 0; }
-    int getHealAmount() const override { return static_cast<int>(BASE_HEAL * (m_starLevel / 2 + 1) * getBondHealMult()); }
+    int getHealAmount() const override { return static_cast<int>((BASE_HEAL * (m_starLevel / 2 + 1) + getEquipBonusHeal()) * getBondHealMult()); }
     bool canHeal() const override { return true; }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
 };

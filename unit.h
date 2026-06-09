@@ -94,6 +94,13 @@ public:
     double getEquipSpeedMultiplier() const;
     double getEquipManaCapMultiplier() const;
     int getEquipBonusRange() const;
+    int getEquipBonusHeal() const;
+    int getEquipBonusMana() const;
+    double getEquipThornsReflect() const;
+    int getEquipDefense() const;
+    double getEquipHealMultiplier() const;
+    double getEquipManaRegenMultiplier() const;
+    bool hasEquipRevive() const;
 
     // 速度 / 计时器
     int getMoveSpeed() const;
@@ -126,6 +133,10 @@ public:
     void setClone(bool c) { m_isClone = c; }
     bool isClone() const { return m_isClone; }
 
+    // 复活石
+    bool hasReviveTriggered() const { return m_reviveTriggered; }
+    void clearReviveTriggered() { m_reviveTriggered = false; }
+
 protected:
     std::string m_name;
     int m_hp;
@@ -154,6 +165,7 @@ protected:
     int m_bondManaMod = 0;
     int m_bondAtkBonus = 0;
     bool m_isClone = false;
+    bool m_reviveTriggered = false;
 };
 
 #endif // UNIT_H

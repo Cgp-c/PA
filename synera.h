@@ -40,6 +40,8 @@ struct SlashEffect {
     int duration;
 };
 
+class EquipSynthWindow;
+
 class Synera : public QMainWindow
 {
     Q_OBJECT
@@ -57,6 +59,7 @@ protected:
 
 private slots:
     void gameLoop();
+    void showEquipSynthWindow();
 
 private:
     void initGame();
@@ -173,7 +176,12 @@ private:
     int m_equipDropCap;
     int m_equipDropCount;
 
-    static constexpr int MAX_EQUIP_DROPS = 8;
+    static constexpr int MAX_EQUIP_DROPS = 10;
+
+    // 装备合成
+    bool trySynthesize(Unit* hero, Weapon* draggedWeapon);
+    Weapon* createWeaponByName(const std::string& name);
+    void reviveUnit(Unit* unit);
 
     // 按钮区域
 
@@ -181,6 +189,10 @@ private:
     QRect m_refreshButtonRect;              // 刷新招募区按钮
     std::vector<QRect> m_recruitRects;      // 招募区 5 槽点击区域
     QRect m_popUpgradeButtonRect;           // 人口上限升级按钮
+    QRect m_synthTreeButtonRect;            // 装备合成树按钮
+
+    // 装备合成树窗口（非模态，指针管理生命周期）
+    EquipSynthWindow* m_equipSynthWindow;
 
     // 人口上限
     int m_populationCap;
