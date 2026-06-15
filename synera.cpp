@@ -2655,11 +2655,20 @@ void Synera::processCombatFrame()
                     }
                 }
             }
-            // 如果没空位，保持在原位（不清除触发标记，下次继续尝试）
-            if (placed)
-                u->clearReviveTriggered();
+            // 无论是否成功放置都必须清除触发标记，否则残留标记会导致
+            // 该单位后续死亡时所有清理代码均被跳过，最终战斗无法正确结算
+            u->clearReviveTriggered();
         }
     }
+
+    // 清理场上残留的死亡单位（部分死亡路径如Boss技能、燃烧结算
+    // 及复活石触发后再次被击杀的单位可能未被及时移除）
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (u && u->isDead())
+                m_board.removeUnit(x, y);
+        }
 
     checkLevelEnd();
 }
@@ -3270,17 +3279,19 @@ void Synera::renderBonds(QPainter& painter)
 
 void Synera::checkLevelEnd()
 {
+    
+    // 直接扫描棋盘判定存活单位（棋盘是物理真实，比 m_units 更可靠，
+    // 避免复活石触发后残留的死亡/消失单位在 m_units 中被误判为存活）
     bool hasHeroAny = false, hasEnemyAny = false;
-
-    for (auto& u : m_units) {
-        if (u->isDisappeared() || u->isDead()) continue;
-        bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
-        if (isH) {
-            hasHeroAny = true;
-        } else {
-            hasEnemyAny = true;
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (dynamic_cast<Hero*>(u) != nullptr)
+                hasHeroAny = true;
+            else
+                hasEnemyAny = true;
         }
-    }
 
     // 只有一方全部阵亡才结束战斗
     if (!hasHeroAny || !hasEnemyAny) {
