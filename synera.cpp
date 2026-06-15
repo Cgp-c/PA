@@ -34,6 +34,7 @@ Synera::Synera(QWidget *parent)
     , m_playerVictory(false)
     , m_showLevelLoss(false)
     , m_frameCounter(0)
+    , m_burnTickCount(0)
     , m_currentLevel(1)
     , m_playerHp(100)
     , m_gold(8000)
@@ -101,6 +102,7 @@ void Synera::initGame()
     m_playerVictory = false;
     m_showLevelLoss = false;
     m_frameCounter = 0;
+    m_burnTickCount = 0;
     m_currentLevel = 1;
     m_playerHp = 100;
     m_gold = 8000;
@@ -142,6 +144,7 @@ void Synera::initLevel()
     m_dragFromRecycleIndex = -1;
     m_phase = GamePhase::Preparation;
     m_frameCounter = 0;
+    m_burnTickCount = 0;
     m_pendingGold = 0;
     m_hitEffects.clear();
     m_slashEffects.clear();
@@ -451,6 +454,7 @@ void Synera::startBattle()
     for (int i = 0; i < 5; ++i) m_bondActive[i] = false; // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
+    m_burnTickCount = 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2294,6 +2298,7 @@ void Synera::processDrop(const QPoint& mousePos)
 
 void Synera::processBurningTick(std::vector<Unit*>& alive)
 {
+    ++m_burnTickCount;
     for (Unit* u : alive) {
         if (u->isBurning()) {
             u->tickBurning();
@@ -2455,6 +2460,12 @@ void Synera::processCombatFrame()
     // 燃烧结算后立刻处理刺客技能
     if (burningFrame)
         processAssassinSkills(alive);
+
+    // 燃烧Tick超过500次 → 超时判胜（防止治疗系角色的死循环）
+    if (m_burnTickCount > 500) {
+        endLevel(true);
+        return;
+    }
 
     for (Unit* u : alive) {
         if (u->isDead() || u->isDisappeared()) continue;

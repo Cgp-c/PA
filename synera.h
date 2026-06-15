@@ -144,6 +144,7 @@ private:
     bool m_playerVictory;
     bool m_showLevelLoss;                     // 关卡失败提示
     int m_frameCounter;                     // 全局帧计数
+    int m_burnTickCount;                    // processBurningTick 执行次数，超过500则超时判胜
 
     // 关卡
     int m_currentLevel;
