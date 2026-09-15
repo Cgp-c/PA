@@ -68,6 +68,25 @@ include CMakeFiles/Synera.dir/progress.make
 # Include the compile flags for this target's objects.
 include CMakeFiles/Synera.dir/flags.make
 
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/resources.qrc
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: CMakeFiles/Synera_autogen.dir/AutoRcc_resources_EWIEGA46WW_Info.json
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/thorns_armor.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/gale_gloves.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/revive_stone.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/upg_dagger.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/bow.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/upg_sword.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/warhorse.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/vitality_armor.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/swift_blade.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/upg_wand.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/speed_gloves.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Users/cgp83/Desktop/PA/src/unit/armor.png
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Qt/6.11.0/mingw_64/bin/rcc.exe
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp: C:/Qt/6.11.0/mingw_64/bin/rcc.exe
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Automatic RCC for resources.qrc"
+	"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E cmake_autorcc C:/Users/cgp83/Desktop/PA/build/CMakeFiles/Synera_autogen.dir/AutoRcc_resources_EWIEGA46WW_Info.json Debug
+
 CMakeFiles/Synera.dir/codegen:
 .PHONY : CMakeFiles/Synera.dir/codegen
 
@@ -75,7 +94,7 @@ CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj: CMakeFiles/Synera
 CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj: Synera_autogen/mocs_compilation.cpp
 CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj -MF CMakeFiles\Synera.dir\Synera_autogen\mocs_compilation.cpp.obj.d -o CMakeFiles\Synera.dir\Synera_autogen\mocs_compilation.cpp.obj -c C:\Users\cgp83\Desktop\PA\build\Synera_autogen\mocs_compilation.cpp
 
 CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.i: cmake_force
@@ -90,7 +109,7 @@ CMakeFiles/Synera.dir/main.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/main.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/main.cpp.obj: C:/Users/cgp83/Desktop/PA/main.cpp
 CMakeFiles/Synera.dir/main.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/Synera.dir/main.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/Synera.dir/main.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/main.cpp.obj -MF CMakeFiles\Synera.dir\main.cpp.obj.d -o CMakeFiles\Synera.dir\main.cpp.obj -c C:\Users\cgp83\Desktop\PA\main.cpp
 
 CMakeFiles/Synera.dir/main.cpp.i: cmake_force
@@ -105,7 +124,7 @@ CMakeFiles/Synera.dir/synera.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/synera.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/synera.cpp.obj: C:/Users/cgp83/Desktop/PA/synera.cpp
 CMakeFiles/Synera.dir/synera.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/Synera.dir/synera.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/Synera.dir/synera.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/synera.cpp.obj -MF CMakeFiles\Synera.dir\synera.cpp.obj.d -o CMakeFiles\Synera.dir\synera.cpp.obj -c C:\Users\cgp83\Desktop\PA\synera.cpp
 
 CMakeFiles/Synera.dir/synera.cpp.i: cmake_force
@@ -120,7 +139,7 @@ CMakeFiles/Synera.dir/unit.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/unit.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/unit.cpp.obj: C:/Users/cgp83/Desktop/PA/unit.cpp
 CMakeFiles/Synera.dir/unit.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/Synera.dir/unit.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/Synera.dir/unit.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/unit.cpp.obj -MF CMakeFiles\Synera.dir\unit.cpp.obj.d -o CMakeFiles\Synera.dir\unit.cpp.obj -c C:\Users\cgp83\Desktop\PA\unit.cpp
 
 CMakeFiles/Synera.dir/unit.cpp.i: cmake_force
@@ -135,7 +154,7 @@ CMakeFiles/Synera.dir/hero.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/hero.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/hero.cpp.obj: C:/Users/cgp83/Desktop/PA/hero.cpp
 CMakeFiles/Synera.dir/hero.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/Synera.dir/hero.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/Synera.dir/hero.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/hero.cpp.obj -MF CMakeFiles\Synera.dir\hero.cpp.obj.d -o CMakeFiles\Synera.dir\hero.cpp.obj -c C:\Users\cgp83\Desktop\PA\hero.cpp
 
 CMakeFiles/Synera.dir/hero.cpp.i: cmake_force
@@ -150,7 +169,7 @@ CMakeFiles/Synera.dir/enemy.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/enemy.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/enemy.cpp.obj: C:/Users/cgp83/Desktop/PA/enemy.cpp
 CMakeFiles/Synera.dir/enemy.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/Synera.dir/enemy.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/Synera.dir/enemy.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/enemy.cpp.obj -MF CMakeFiles\Synera.dir\enemy.cpp.obj.d -o CMakeFiles\Synera.dir\enemy.cpp.obj -c C:\Users\cgp83\Desktop\PA\enemy.cpp
 
 CMakeFiles/Synera.dir/enemy.cpp.i: cmake_force
@@ -165,7 +184,7 @@ CMakeFiles/Synera.dir/weapon.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/weapon.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/weapon.cpp.obj: C:/Users/cgp83/Desktop/PA/weapon.cpp
 CMakeFiles/Synera.dir/weapon.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/Synera.dir/weapon.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/Synera.dir/weapon.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/weapon.cpp.obj -MF CMakeFiles\Synera.dir\weapon.cpp.obj.d -o CMakeFiles\Synera.dir\weapon.cpp.obj -c C:\Users\cgp83\Desktop\PA\weapon.cpp
 
 CMakeFiles/Synera.dir/weapon.cpp.i: cmake_force
@@ -180,7 +199,7 @@ CMakeFiles/Synera.dir/board.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/board.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/board.cpp.obj: C:/Users/cgp83/Desktop/PA/board.cpp
 CMakeFiles/Synera.dir/board.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/Synera.dir/board.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/Synera.dir/board.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/board.cpp.obj -MF CMakeFiles\Synera.dir\board.cpp.obj.d -o CMakeFiles\Synera.dir\board.cpp.obj -c C:\Users\cgp83\Desktop\PA\board.cpp
 
 CMakeFiles/Synera.dir/board.cpp.i: cmake_force
@@ -195,7 +214,7 @@ CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj: CMakeFiles/Synera.dir/flags.make
 CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
 CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj: C:/Users/cgp83/Desktop/PA/equipsynthwindow.cpp
 CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj -MF CMakeFiles\Synera.dir\equipsynthwindow.cpp.obj.d -o CMakeFiles\Synera.dir\equipsynthwindow.cpp.obj -c C:\Users\cgp83\Desktop\PA\equipsynthwindow.cpp
 
 CMakeFiles/Synera.dir/equipsynthwindow.cpp.i: cmake_force
@@ -205,6 +224,21 @@ CMakeFiles/Synera.dir/equipsynthwindow.cpp.i: cmake_force
 CMakeFiles/Synera.dir/equipsynthwindow.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/Synera.dir/equipsynthwindow.cpp.s"
 	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\cgp83\Desktop\PA\equipsynthwindow.cpp -o CMakeFiles\Synera.dir\equipsynthwindow.cpp.s
+
+CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj: CMakeFiles/Synera.dir/flags.make
+CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj: CMakeFiles/Synera.dir/includes_CXX.rsp
+CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj: Synera_autogen/EWIEGA46WW/qrc_resources.cpp
+CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj: CMakeFiles/Synera.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj"
+	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj -MF CMakeFiles\Synera.dir\Synera_autogen\EWIEGA46WW\qrc_resources.cpp.obj.d -o CMakeFiles\Synera.dir\Synera_autogen\EWIEGA46WW\qrc_resources.cpp.obj -c C:\Users\cgp83\Desktop\PA\build\Synera_autogen\EWIEGA46WW\qrc_resources.cpp
+
+CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.i"
+	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\cgp83\Desktop\PA\build\Synera_autogen\EWIEGA46WW\qrc_resources.cpp > CMakeFiles\Synera.dir\Synera_autogen\EWIEGA46WW\qrc_resources.cpp.i
+
+CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.s"
+	C:\mingw64\bin\g++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\cgp83\Desktop\PA\build\Synera_autogen\EWIEGA46WW\qrc_resources.cpp -o CMakeFiles\Synera.dir\Synera_autogen\EWIEGA46WW\qrc_resources.cpp.s
 
 # Object files for target Synera
 Synera_OBJECTS = \
@@ -216,7 +250,8 @@ Synera_OBJECTS = \
 "CMakeFiles/Synera.dir/enemy.cpp.obj" \
 "CMakeFiles/Synera.dir/weapon.cpp.obj" \
 "CMakeFiles/Synera.dir/board.cpp.obj" \
-"CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj"
+"CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj" \
+"CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj"
 
 # External object files for target Synera
 Synera_EXTERNAL_OBJECTS =
@@ -230,6 +265,7 @@ Synera.exe: CMakeFiles/Synera.dir/enemy.cpp.obj
 Synera.exe: CMakeFiles/Synera.dir/weapon.cpp.obj
 Synera.exe: CMakeFiles/Synera.dir/board.cpp.obj
 Synera.exe: CMakeFiles/Synera.dir/equipsynthwindow.cpp.obj
+Synera.exe: CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj
 Synera.exe: CMakeFiles/Synera.dir/build.make
 Synera.exe: C:/Qt/6.11.0/mingw_64/lib/libQt6Widgets.a
 Synera.exe: C:/Qt/6.11.0/mingw_64/lib/libQt6Gui.a
@@ -237,7 +273,7 @@ Synera.exe: C:/Qt/6.11.0/mingw_64/lib/libQt6Core.a
 Synera.exe: CMakeFiles/Synera.dir/linkLibs.rsp
 Synera.exe: CMakeFiles/Synera.dir/objects1.rsp
 Synera.exe: CMakeFiles/Synera.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Linking CXX executable Synera.exe"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\cgp83\Desktop\PA\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Linking CXX executable Synera.exe"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles\Synera.dir\link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -248,7 +284,7 @@ CMakeFiles/Synera.dir/clean:
 	$(CMAKE_COMMAND) -P CMakeFiles\Synera.dir\cmake_clean.cmake
 .PHONY : CMakeFiles/Synera.dir/clean
 
-CMakeFiles/Synera.dir/depend:
+CMakeFiles/Synera.dir/depend: Synera_autogen/EWIEGA46WW/qrc_resources.cpp
 	$(CMAKE_COMMAND) -E cmake_depends "MinGW Makefiles" C:\Users\cgp83\Desktop\PA C:\Users\cgp83\Desktop\PA C:\Users\cgp83\Desktop\PA\build C:\Users\cgp83\Desktop\PA\build C:\Users\cgp83\Desktop\PA\build\CMakeFiles\Synera.dir\DependInfo.cmake "--color=$(COLOR)"
 .PHONY : CMakeFiles/Synera.dir/depend
 

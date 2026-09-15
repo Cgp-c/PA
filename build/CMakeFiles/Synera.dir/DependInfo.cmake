@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "C:/Users/cgp83/Desktop/PA/build/Synera_autogen/EWIEGA46WW/qrc_resources.cpp" "CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj" "gcc" "CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj.d"
   "C:/Users/cgp83/Desktop/PA/build/Synera_autogen/mocs_compilation.cpp" "CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj" "gcc" "CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj.d"
   "C:/Users/cgp83/Desktop/PA/board.cpp" "CMakeFiles/Synera.dir/board.cpp.obj" "gcc" "CMakeFiles/Synera.dir/board.cpp.obj.d"
   "C:/Users/cgp83/Desktop/PA/enemy.cpp" "CMakeFiles/Synera.dir/enemy.cpp.obj" "gcc" "CMakeFiles/Synera.dir/enemy.cpp.obj.d"

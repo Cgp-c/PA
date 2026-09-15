@@ -228,6 +228,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "CMakeFiles/3.31.6-msvc6/CMakeCXXCompiler.cmake"
   "CMakeFiles/3.31.6-msvc6/CMakeRCCompiler.cmake"
   "CMakeFiles/3.31.6-msvc6/CMakeSystem.cmake"
+  "C:/Users/cgp83/Desktop/PA/resources.qrc"
   )
 
 # The corresponding makefile is:
@@ -239,6 +240,7 @@ set(CMAKE_MAKEFILE_OUTPUTS
 # Byproducts of CMake generate step:
 set(CMAKE_MAKEFILE_PRODUCTS
   "CMakeFiles/Synera_autogen.dir/AutogenInfo.json"
+  "CMakeFiles/Synera_autogen.dir/AutoRcc_resources_EWIEGA46WW_Info.json"
   ".qt/QtDeploySupport.cmake"
   ".qt/QtDeployTargets.cmake"
   "CMakeFiles/CMakeDirectoryInformation.cmake"

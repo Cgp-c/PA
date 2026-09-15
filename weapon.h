@@ -11,6 +11,8 @@ public:
     virtual std::string getName() const = 0;
     virtual std::string getDisplayName() const = 0;
     virtual EquipType getEquipType() const = 0;
+    // 图标文件名（Qt 资源 :/equip/<file>），与类一一对应
+    virtual const char* getIconFile() const = 0;
     virtual int getBonusDamage() const { return 0; }
     virtual int getBonusHp() const { return 0; }
     virtual double getSpeedMultiplier() const { return 1.0; }
@@ -40,6 +42,7 @@ public:
 class BasicAttackWeapon : public AttackWeapon {
 public:
     std::string getName() const override { return "Iron Sword"; }
+    const char* getIconFile() const override { return "upg_dagger.png"; }
     std::string getDisplayName() const override { return "\345\211\221"; } // 剑
     int getBonusDamage() const override { return 30; }
 };
@@ -54,6 +57,7 @@ public:
 class BasicDefenseWeapon : public DefenseWeapon {
 public:
     std::string getName() const override { return "Chain Mail"; }
+    const char* getIconFile() const override { return "armor.png"; }
     std::string getDisplayName() const override { return "\347\224\262"; } // 甲
     int getBonusHp() const override { return 150; }
 };
@@ -68,6 +72,7 @@ public:
 class BasicSpeedWeapon : public SpeedWeapon {
 public:
     std::string getName() const override { return "Speed Gloves"; }
+    const char* getIconFile() const override { return "speed_gloves.png"; }
     std::string getDisplayName() const override { return "\346\224\273\351\200\237"; } // 攻速
     double getSpeedMultiplier() const override { return 0.8; }
 };
@@ -82,6 +87,7 @@ public:
 class BasicManaWeapon : public ManaWeapon {
 public:
     std::string getName() const override { return "Blue Crystal"; }
+    const char* getIconFile() const override { return "upg_wand.png"; }
     std::string getDisplayName() const override { return "\351\255\224\346\263\225\347\237\263"; } // 魔法石
     double getManaCapMultiplier() const override { return 0.5; }
 };
@@ -96,6 +102,7 @@ public:
 class BasicRangeWeapon : public RangeWeapon {
 public:
     std::string getName() const override { return "Warhorse"; }
+    const char* getIconFile() const override { return "warhorse.png"; }
     std::string getDisplayName() const override { return "\346\210\230\351\251\254"; } // 战马
     int getBonusRange() const override { return 1; }
 };
@@ -109,6 +116,7 @@ public:
 class RuneGreatsword : public AttackWeapon {
 public:
     std::string getName() const override { return "Rune Greatsword"; }
+    const char* getIconFile() const override { return "upg_sword.png"; }
     std::string getDisplayName() const override { return "\347\254\246\346\226\207\345\244\247\345\211\221"; } // 符文大剑
     int getBonusDamage() const override { return 50; }
     int getBonusHeal() const override { return 50; }
@@ -119,6 +127,7 @@ public:
 class SwiftBlade : public AttackWeapon {
 public:
     std::string getName() const override { return "Swift Blade"; }
+    const char* getIconFile() const override { return "swift_blade.png"; }
     std::string getDisplayName() const override { return "\346\236\201\351\200\237\346\210\230\345\210\200"; } // 极速战刀
     int getBonusDamage() const override { return 30; }
     double getSpeedMultiplier() const override { return 0.5; }
@@ -129,6 +138,7 @@ public:
 class ThornsArmor : public DefenseWeapon {
 public:
     std::string getName() const override { return "Thorns Armor"; }
+    const char* getIconFile() const override { return "thorns_armor.png"; }
     std::string getDisplayName() const override { return "\345\217\215\344\274\244\351\223\240\347\224\262"; } // 反伤铠甲
     int getBonusHp() const override { return 200; }
     double getThornsReflect() const override { return 0.5; }
@@ -137,6 +147,7 @@ public:
 class VitalityArmor : public DefenseWeapon {
 public:
     std::string getName() const override { return "Vitality Armor"; }
+    const char* getIconFile() const override { return "vitality_armor.png"; }
     std::string getDisplayName() const override { return "\347\224\237\345\221\275\351\207\215\347\224\262"; } // 生命重甲
     int getBonusHp() const override { return 400; }
     int getDefense() const override { return 20; }
@@ -148,6 +159,7 @@ public:
 class GaleGloves : public SpeedWeapon {
 public:
     std::string getName() const override { return "Gale Gloves"; }
+    const char* getIconFile() const override { return "gale_gloves.png"; }
     std::string getDisplayName() const override { return "\347\226\276\351\243\216\346\211\213\345\245\227"; } // 疾风手套
     double getSpeedMultiplier() const override { return 0.7; }
     int getBonusMana() const override { return 20; }
@@ -158,6 +170,7 @@ public:
 class ReviveStone : public ManaWeapon {
 public:
     std::string getName() const override { return "Revive Stone"; }
+    const char* getIconFile() const override { return "revive_stone.png"; }
     std::string getDisplayName() const override { return "\345\244\215\346\264\273\347\237\263"; } // 复活石
     int getBonusHp() const override { return 100; }
     double getManaRegenMultiplier() const override { return 2.0; }
@@ -170,6 +183,7 @@ public:
 class SniperCrossbow : public RangeWeapon {
 public:
     std::string getName() const override { return "Sniper Crossbow"; }
+    const char* getIconFile() const override { return "bow.png"; }
     std::string getDisplayName() const override { return "\347\213\231\345\207\273\345\274\251"; } // 狙击弩
     int getBonusDamage() const override { return 40; }
     int getBonusRange() const override { return 2; }

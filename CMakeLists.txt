@@ -13,8 +13,10 @@ set(CMAKE_GENERATOR "MinGW Makefiles" CACHE INTERNAL "" FORCE)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
 qt_standard_project_setup()
+set(CMAKE_AUTORCC ON)   # 编译 resources.qrc（装备图标）进可执行文件
 
 qt_add_executable(Synera
+    resources.qrc
     main.cpp
     synera.h
     synera.cpp

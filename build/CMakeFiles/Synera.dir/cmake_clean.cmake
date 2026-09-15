@@ -2,6 +2,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/Synera_autogen.dir/AutogenUsed.txt"
   "CMakeFiles/Synera_autogen.dir/ParseCache.txt"
   "Synera_autogen"
+  "CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj"
+  "CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj.d"
   "CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj"
   "CMakeFiles/Synera.dir/Synera_autogen/mocs_compilation.cpp.obj.d"
   "CMakeFiles/Synera.dir/board.cpp.obj"
@@ -23,6 +25,7 @@ file(REMOVE_RECURSE
   "Synera.exe"
   "Synera.exe.manifest"
   "Synera.pdb"
+  "Synera_autogen/EWIEGA46WW/qrc_resources.cpp"
   "libSynera.dll.a"
 )
 

@@ -1,0 +1,18 @@
+<RCC>
+    <qresource prefix="/equip">
+        <!-- 基础装备 -->
+        <file>src/unit/upg_dagger.png</file>
+        <file>src/unit/armor.png</file>
+        <file>src/unit/speed_gloves.png</file>
+        <file>src/unit/upg_wand.png</file>
+        <file>src/unit/warhorse.png</file>
+        <!-- 高级装备 -->
+        <file>src/unit/upg_sword.png</file>
+        <file>src/unit/swift_blade.png</file>
+        <file>src/unit/thorns_armor.png</file>
+        <file>src/unit/vitality_armor.png</file>
+        <file>src/unit/gale_gloves.png</file>
+        <file>src/unit/revive_stone.png</file>
+        <file>src/unit/bow.png</file>
+    </qresource>
+</RCC>

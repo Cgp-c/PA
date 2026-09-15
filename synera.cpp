@@ -4,6 +4,7 @@
 #include "enemy.h"
 #include "weapon.h"
 #include "equipsynthwindow.h"
+#include "equipicons.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -853,34 +854,21 @@ static QString typeLabel(UnitType t)
 // 类型英文名（信息面板与招募区共用）
 static const char* UNIT_TYPE_NAMES[] = {"Warrior", "Mage", "Support", "Assassin"};
 
-// 统一计算单位装备框宽度：渲染与命中检测共用同一份计算，保证两边永远对齐
-static int uniformEquipBoxWidth(const Unit* u, int baseW, int textPad, bool bold)
+// 统一计算单位装备框宽度：渲染与命中检测共用同一份计算，保证两边永远对齐。
+// 装备改用方形图标后宽度为常量（参数保留以兼容调用点签名）。
+static int uniformEquipBoxWidth(const Unit* /*u*/, int baseW, int /*textPad*/, bool /*bold*/)
 {
-    QFont f;
-    f.setPixelSize(6);
-    f.setBold(bold);
-    QFontMetrics fm(f);
-    int w = baseW;
-    const int maxSlots = u->getMaxEquipSlots();
-    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
-        Weapon* ew = u->getEquip(static_cast<EquipType>(ei));
-        if (!ew && ei >= maxSlots) continue;
-        if (ew) {
-            int bw = fm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + textPad;
-            if (bw > w) w = bw;
-        }
-    }
-    return w;
+    return baseW;
 }
 
 int Synera::boardEquipBoxWidth(const Unit* u) const
 {
-    return uniformEquipBoxWidth(u, 14, 4, true);
+    return uniformEquipBoxWidth(u, 10, 0, true);   // 8px 图标 + 边距
 }
 
 int Synera::recycleEquipBoxWidth(const Unit* u) const
 {
-    return uniformEquipBoxWidth(u, 12, 3, false);
+    return uniformEquipBoxWidth(u, 8, 0, false);   // 7px 图标 + 边距
 }
 
 bool Synera::anyHeroOnPlayerHalf() const
@@ -1003,17 +991,13 @@ void Synera::renderUnits(QPainter& painter)
             painter.setBrush(QColor(50, 120, 240));
             painter.drawRoundedRect(manaBarFill, 1, 1);
 
-            // 装备框（右侧5格）
+            // 装备框（右侧5格，图标显示）
             if (isHero) {
-                int boxH = 9, boxGap = 1;
-                int boxStartY = rc.top() + 2;
+                int boxH = 10, boxGap = 1;
+                int boxStartY = rc.top() + 1;
                 int maxSlots = unit->getMaxEquipSlots();
                 int maxBoxW = boardEquipBoxWidth(unit);
 
-                QFont eqFont;
-                eqFont.setPixelSize(6);
-                eqFont.setBold(true);
-                painter.setFont(eqFont);
                 for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                     EquipType et = static_cast<EquipType>(ei);
                     Weapon* ew = unit->getEquip(et);
@@ -1025,8 +1009,8 @@ void Synera::renderUnits(QPainter& painter)
                         painter.setBrush(QColor(40, 40, 55));
                         painter.setPen(QPen(QColor(255, 210, 50), 1));
                         painter.drawRoundedRect(boxRect, 2, 2);
-                        painter.setPen(QColor(255, 220, 80));
-                        painter.drawText(boxRect, Qt::AlignCenter, QString::fromStdString(ew->getDisplayName()));
+                        const QPixmap& icon = equipIcon(ew->getIconFile(), 8);
+                        painter.drawPixmap(boxRect.center() - QPoint(icon.width() / 2, icon.height() / 2), icon);
                     } else {
                         painter.setBrush(QColor(28, 28, 38));
                         painter.setPen(QPen(QColor(60, 60, 75), 1));
@@ -1376,9 +1360,6 @@ void Synera::renderRecycleSlots(QPainter& painter)
                 int eqBoxStartY = rc.top() + 2;
                 int maxEqBoxW = recycleEquipBoxWidth(u);
 
-                QFont eqFont;
-                eqFont.setPixelSize(6);
-                painter.setFont(eqFont);
                 for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                     EquipType et = static_cast<EquipType>(ei);
                     Weapon* ew = u->getEquip(et);
@@ -1389,8 +1370,8 @@ void Synera::renderRecycleSlots(QPainter& painter)
                         painter.setBrush(QColor(40, 40, 55));
                         painter.setPen(QPen(QColor(255, 210, 50), 1));
                         painter.drawRoundedRect(eqBox, 1, 1);
-                        painter.setPen(QColor(255, 220, 80));
-                        painter.drawText(eqBox, Qt::AlignCenter, QString::fromStdString(ew->getDisplayName()));
+                        const QPixmap& icon = equipIcon(ew->getIconFile(), 7);
+                        painter.drawPixmap(eqBox.center() - QPoint(icon.width() / 2, icon.height() / 2), icon);
                     } else {
                         painter.setBrush(QColor(28, 28, 38));
                         painter.setPen(QPen(QColor(60, 60, 75), 1));
@@ -1455,18 +1436,13 @@ void Synera::renderEquipDrops(QPainter& painter)
         m_equipDropRects.push_back(rc);
 
         if (i < (int)m_equipDrops.size() && m_equipDrops[i]) {
-            // 有装备掉落
+            // 有装备掉落：图标显示
             painter.setBrush(QColor(45, 40, 55));
             painter.setPen(QPen(QColor(255, 180, 50), 1));
             painter.drawRoundedRect(rc, 3, 3);
 
-            QString txt = QString::fromStdString(m_equipDrops[i]->getDisplayName());
-            painter.setPen(QColor(255, 220, 80));
-            QFont ef;
-            ef.setPixelSize(7);
-            ef.setBold(true);
-            painter.setFont(ef);
-            painter.drawText(rc, Qt::AlignCenter, txt);
+            const QPixmap& icon = equipIcon(m_equipDrops[i]->getIconFile(), 18);
+            painter.drawPixmap(rc.center() - QPoint(icon.width() / 2, icon.height() / 2), icon);
         } else {
             // 空槽
             painter.setBrush(Qt::NoBrush);
@@ -1512,8 +1488,8 @@ Unit* Synera::findBoardEquipSlotAt(const QPoint& pixel, EquipType& outType) cons
             if (!u || u->isDead() || u->isDisappeared()) continue;
             if (!dynamic_cast<Hero*>(u)) continue;
             QRect rc = cellRect(x, y);
-            int boxH = 9, boxGap = 1;
-            int boxStartY = rc.top() + 2;
+            int boxH = 10, boxGap = 1;
+            int boxStartY = rc.top() + 1;
             int maxSlots = u->getMaxEquipSlots();
             int maxBoxW = boardEquipBoxWidth(u); // 与渲染共用同一计算
             if (pixel.x() < rc.right() - maxBoxW - 2 || pixel.x() > rc.right()) continue;
@@ -1592,7 +1568,7 @@ void Synera::renderDragGhost(QPainter& painter)
     }
 
     if (m_draggedWeapon) {
-        int gw = 48, gh = 28;
+        int gw = 48, gh = 34;
         QRect gearRect(m_dragCurrentPos.x() - gw / 2,
                        m_dragCurrentPos.y() - gh / 2, gw, gh);
         painter.save();
@@ -1600,12 +1576,18 @@ void Synera::renderDragGhost(QPainter& painter)
         painter.setBrush(QColor(45, 40, 60));
         painter.setPen(QPen(QColor(255, 210, 50), 2));
         painter.drawRoundedRect(gearRect, 4, 4);
+
+        const QPixmap& icon = equipIcon(m_draggedWeapon->getIconFile(), 18);
+        painter.drawPixmap(gearRect.center().x() - icon.width() / 2,
+                           gearRect.top() + 2, icon);
+
         painter.setPen(QColor(255, 220, 80));
         QFont gf;
-        gf.setPixelSize(10);
+        gf.setPixelSize(8);
         gf.setBold(true);
         painter.setFont(gf);
-        painter.drawText(gearRect, Qt::AlignCenter,
+        QRect nameRect(gearRect.left(), gearRect.bottom() - 12, gw, 12);
+        painter.drawText(nameRect, Qt::AlignHCenter | Qt::AlignVCenter,
                          QString::fromStdString(m_draggedWeapon->getDisplayName()));
         painter.restore();
     }

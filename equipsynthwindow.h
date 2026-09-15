@@ -25,8 +25,9 @@ signals:
 private:
     struct SynthEntry {
         QString displayName;   // 展示名字（中文）
-        QString ingredient1;   // 合成材料1
-        QString ingredient2;   // 合成材料2
+        QString iconFile;      // 结果装备图标文件名（:/equip/ 下）
+        QString ingIcon1;      // 材料1图标文件名
+        QString ingIcon2;      // 材料2图标文件名
         QString effects;       // 效果描述
         QString equipType;     // 装备类型标签
         QColor  typeColor;     // 类型颜色

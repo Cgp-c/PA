@@ -444,6 +444,9 @@ CMakeFiles/Synera.dir/synera.cpp.obj: \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QTransform \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qscreen_platform.h \
  C:/Qt/6.11.0/mingw_64/include/QtCore/QString \
+ C:\Users\cgp83\Desktop\PA\equipicons.h \
+ C:/Qt/6.11.0/mingw_64/include/QtGui/QPixmap \
+ C:/Qt/6.11.0/mingw_64/include/QtCore/QHash \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QPainterPath \
  C:/Qt/6.11.0/mingw_64/include/QtGui/qpainterpath.h \
  C:/Qt/6.11.0/mingw_64/include/QtGui/QMouseEvent \

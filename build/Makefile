@@ -66,8 +66,8 @@ CMAKE_BINARY_DIR = C:\Users\cgp83\Desktop\PA\build
 
 # Special rule for the target edit_cache
 edit_cache:
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Running CMake cache editor..."
-	C:\Qt\Tools\CMake_64\bin\cmake-gui.exe -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR)
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "No interactive CMake dialog available..."
+	"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo "No interactive CMake dialog available."
 .PHONY : edit_cache
 
 # Special rule for the target edit_cache
@@ -153,6 +153,30 @@ Synera_autogen: cmake_check_build_system
 Synera_autogen/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\Synera_autogen.dir\build.make CMakeFiles/Synera_autogen.dir/build
 .PHONY : Synera_autogen/fast
+
+Synera_autogen/EWIEGA46WW/qrc_resources.obj: Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj
+.PHONY : Synera_autogen/EWIEGA46WW/qrc_resources.obj
+
+# target to build an object file
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Synera.dir\build.make CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj
+.PHONY : Synera_autogen/EWIEGA46WW/qrc_resources.cpp.obj
+
+Synera_autogen/EWIEGA46WW/qrc_resources.i: Synera_autogen/EWIEGA46WW/qrc_resources.cpp.i
+.PHONY : Synera_autogen/EWIEGA46WW/qrc_resources.i
+
+# target to preprocess a source file
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Synera.dir\build.make CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.i
+.PHONY : Synera_autogen/EWIEGA46WW/qrc_resources.cpp.i
+
+Synera_autogen/EWIEGA46WW/qrc_resources.s: Synera_autogen/EWIEGA46WW/qrc_resources.cpp.s
+.PHONY : Synera_autogen/EWIEGA46WW/qrc_resources.s
+
+# target to generate assembly for a file
+Synera_autogen/EWIEGA46WW/qrc_resources.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Synera.dir\build.make CMakeFiles/Synera.dir/Synera_autogen/EWIEGA46WW/qrc_resources.cpp.s
+.PHONY : Synera_autogen/EWIEGA46WW/qrc_resources.cpp.s
 
 Synera_autogen/mocs_compilation.obj: Synera_autogen/mocs_compilation.cpp.obj
 .PHONY : Synera_autogen/mocs_compilation.obj
@@ -381,6 +405,9 @@ help:
 	@echo ... Synera_autogen
 	@echo ... Synera_autogen_timestamp_deps
 	@echo ... Synera
+	@echo ... Synera_autogen/EWIEGA46WW/qrc_resources.obj
+	@echo ... Synera_autogen/EWIEGA46WW/qrc_resources.i
+	@echo ... Synera_autogen/EWIEGA46WW/qrc_resources.s
 	@echo ... Synera_autogen/mocs_compilation.obj
 	@echo ... Synera_autogen/mocs_compilation.i
 	@echo ... Synera_autogen/mocs_compilation.s
