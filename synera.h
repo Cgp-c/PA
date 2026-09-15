@@ -30,14 +30,6 @@ struct HitEffect {
     int amount;          // negative=damage, positive=heal
     int startFrame;
     int duration;
-    bool alive;          // true=独立悬浮文本，false=随单位消失
-};
-
-struct SlashEffect {
-    int cellX, cellY;
-    bool isSkill;        // false=attack slash, true=skill slash
-    int startFrame;
-    int duration;
 };
 
 class EquipSynthWindow;
@@ -111,6 +103,27 @@ private:
     bool canAttack(Unit* attacker, Unit* target) const;
     void checkLevelEnd();
 
+    // 技能结算样板：快照 HP → 释放技能 → 记录伤害数字 → 敌方死亡发金币/掉装备
+    void castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector<Unit*>&),
+                       std::vector<Unit*>& alive);
+
+    // 关卡结束：收集棋盘存活英雄 / 移入回收槽（放不下则消失）
+    std::vector<Unit*> collectSurvivingHeroes() const;
+    void retireHeroesToRecycle(std::vector<Unit*> heroes);
+
+    // 吟咏魔典羁绊：法师施放者把技能点共享给其他己技巧师
+    void shareManaToMages(Unit* caster, const std::vector<Unit*>& alive) const;
+
+    // 羁绊状态计算（阈值表达式唯一来源）
+    static void bondStatesFromCounts(int warriorCount, int mageCount,
+                                     int supportCount, int assassinCount, bool outActive[5]);
+
+    // 布局/命中检测辅助
+    bool anyHeroOnPlayerHalf() const;
+    int  findEmptyRecycleSlot() const;
+    int  boardEquipBoxWidth(const Unit* u) const;    // 棋盘单位装备框统一宽度（渲染与命中共用）
+    int  recycleEquipBoxWidth(const Unit* u) const;  // 回收槽单位装备框统一宽度
+
     // 羁绊系统
     void checkAndApplyBonds(std::vector<Unit*>& alive);
     void previewBonds();  // 准备阶段预览羁绊状态
@@ -120,7 +133,6 @@ private:
                          std::vector<Unit*>& supports, std::vector<Unit*>& assassins, std::vector<Unit*>& alive);
     void revertBondEffect(int idx, std::vector<Unit*>& alive);
 
-    Unit* findUnitAt(int boardX, int boardY) const;
     Unit* findUnitAtPixel(const QPoint& pixel) const;
     int   findRecruitSlotAt(const QPoint& pixel) const;
     int   findRecycleSlotAt(const QPoint& pixel) const;
@@ -158,31 +170,26 @@ private:
     // 回收槽：2行 × 8列
     std::vector<Unit*> m_recycleSlots;      // 16个
 
-    // 拖拽
-    Unit* m_draggedUnit;
+    // 拖拽（来源只需记录回收槽索引；棋盘来源无需标记）
+    Unit* m_draggedUnit = nullptr;
     QPoint m_dragCurrentPos;
-    int m_dragFromShopIndex;                // -1=board, -2=recycle, >=0=recruit index
-    int m_dragFromRecycleIndex;             // recycle slot index (0-15)
+    int m_dragFromRecycleIndex = -1;        // recycle slot index, -1 if from board
 
     // 装备拖拽
-    Weapon* m_draggedWeapon;
-    int m_dragWeaponFromDropIdx;            // equip drop index, -1 if from hero
-    Unit* m_dragWeaponFromUnit;             // hero unequipped from, nullptr if from drop
-    EquipType m_dragWeaponFromSlot;         // equip type slot on hero
+    Weapon* m_draggedWeapon = nullptr;
+    int m_dragWeaponFromDropIdx = -1;       // equip drop index, -1 if from hero
+    Unit* m_dragWeaponFromUnit = nullptr;   // hero unequipped from, nullptr if from drop
+    EquipType m_dragWeaponFromSlot = EquipType::Attack; // equip type slot on hero
 
     // 装备掉落
     std::vector<Weapon*> m_equipDrops;
-    Weapon* m_pendingEquip;
     std::vector<QRect> m_equipDropRects;
-    int m_equipDropCap;
-    int m_equipDropCount;
 
     static constexpr int MAX_EQUIP_DROPS = 10;
 
     // 装备合成
     bool trySynthesize(Unit* hero, Weapon* draggedWeapon);
     Weapon* createWeaponByName(const std::string& name);
-    void reviveUnit(Unit* unit);
 
     // 按钮区域
 
@@ -193,7 +200,7 @@ private:
     QRect m_synthTreeButtonRect;            // 装备合成树按钮
 
     // 装备合成树窗口（非模态，指针管理生命周期）
-    EquipSynthWindow* m_equipSynthWindow;
+    EquipSynthWindow* m_equipSynthWindow = nullptr;
 
     // 人口上限
     int m_populationCap;
@@ -204,7 +211,6 @@ private:
 
     // 视觉特效
     std::vector<HitEffect> m_hitEffects;
-    std::vector<SlashEffect> m_slashEffects;
 
     // 伤害/治疗累积显示
     std::map<Unit*, std::vector<int>> m_pendingDamageEvents;
@@ -227,6 +233,9 @@ private:
     static constexpr int RECYCLE_SLOT_W = 44;
     static constexpr int RECYCLE_SLOT_H = 40;
     static constexpr int RECYCLE_SPACING = 4;
+    // 回收槽区域整体宽度与起始 X（布局公式唯一来源）
+    static constexpr int RECYCLE_TOTAL_W = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
+    static constexpr int RECYCLE_START_X = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - RECYCLE_TOTAL_W) / 2;
     static constexpr int BURNING_INTERVAL = 60;
 };
 

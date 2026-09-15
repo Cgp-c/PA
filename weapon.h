@@ -14,7 +14,6 @@ public:
     virtual int getBonusDamage() const { return 0; }
     virtual int getBonusHp() const { return 0; }
     virtual double getSpeedMultiplier() const { return 1.0; }
-    virtual int getSkillManaCost() const { return 0; }
     virtual int getBonusRange() const { return 0; }
     virtual double getManaCapMultiplier() const { return 1.0; }
     // ─── 高级装备效果 ──────────────────────────────────────
@@ -25,6 +24,10 @@ public:
     virtual double getHealMultiplier() const { return 1.0; }  // 受治疗倍率
     virtual double getManaRegenMultiplier() const { return 1.0; } // 法力回复倍率
     virtual bool hasRevive() const { return false; }          // 复活石
+
+    // 按名称创建装备（裸指针返回，调用方负责所有权），未知名返回 nullptr。
+    // 名称注册表集中在此处，与类定义同文件维护。
+    static Weapon* create(const std::string& name);
 };
 
 // ─── 攻击装 ──────────────────────────────────────────────

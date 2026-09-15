@@ -29,35 +29,13 @@ static std::string getSynthesisResultName(const std::string& a, const std::strin
 Synera::Synera(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , m_phase(GamePhase::Preparation)
-    , m_gameOver(false)
-    , m_playerVictory(false)
-    , m_showLevelLoss(false)
-    , m_frameCounter(0)
-    , m_burnTickCount(0)
-    , m_currentLevel(1)
-    , m_playerHp(100)
-    , m_gold(8000)
-    , m_pendingGold(0)
-    , m_recycleSlots(16, nullptr)
-    , m_draggedUnit(nullptr)
-    , m_dragFromShopIndex(-1)
-    , m_dragFromRecycleIndex(-1)
-    , m_draggedWeapon(nullptr)
-    , m_dragWeaponFromDropIdx(-1)
-    , m_dragWeaponFromUnit(nullptr)
-    , m_dragWeaponFromSlot(EquipType::Attack)
-    , m_populationCap(4)
-    , m_pendingEquip(nullptr)
-    , m_equipDropCap(0)
-    , m_equipDropCount(0)
-    , m_equipSynthWindow(nullptr)
 {
     ui->setupUi(this);
     setWindowTitle("Synera - Auto Chess Arena");
     resize(880, 720);
     setMouseTracking(true);
 
+    // 游戏状态全部由 initGame() 统一初始化，构造列表不再重复赋值
     initGame();
 
     m_gameTimer = new QTimer(this);
@@ -91,11 +69,9 @@ void Synera::initGame()
 {
     m_units.clear();
     m_weapons.clear();
-    m_shop.clear();
     m_board.clear();
-    for (auto& p : m_recycleSlots) p = nullptr;
+    m_recycleSlots.assign(16, nullptr); // 重置并保证尺寸为 16
     m_draggedUnit = nullptr;
-    m_dragFromShopIndex = -1;
     m_dragFromRecycleIndex = -1;
     m_phase = GamePhase::Preparation;
     m_gameOver = false;
@@ -108,9 +84,10 @@ void Synera::initGame()
     m_gold = 8000;
     m_pendingGold = 0;
     m_populationCap = 4;
+    m_hitEffects.clear();
+    m_pendingDamageEvents.clear();
 
     // 初始化英雄信息面板：4 种类型
-    m_shop.clear();
     m_shop.push_back({UnitType::Warrior, 0});
     m_shop.push_back({UnitType::Mage, 0});
     m_shop.push_back({UnitType::Support, 0});
@@ -125,9 +102,6 @@ void Synera::initGame()
 
     // 初始化装备掉落
     m_equipDrops.clear();
-    m_pendingEquip = nullptr;
-    m_equipDropCap = 0;
-    m_equipDropCount = 0;
 }
 
 void Synera::initLevel()
@@ -140,15 +114,12 @@ void Synera::initLevel()
 
     m_board.clear();
     m_draggedUnit = nullptr;
-    m_dragFromShopIndex = -1;
     m_dragFromRecycleIndex = -1;
     m_phase = GamePhase::Preparation;
     m_frameCounter = 0;
     m_burnTickCount = 0;
     m_pendingGold = 0;
-    m_hitEffects.clear();
-    m_slashEffects.clear();
-    m_pendingDamageEvents.clear();
+    // 特效已在 endLevel() 开头清空，这里无需重复清理
 
     refreshRecruitment();
 
@@ -328,10 +299,7 @@ void Synera::checkAutoStarUp()
             for (int i = 0; i < 3; ++i) {
                 if (!units[i].onBoard) { hasRecycleSlot = true; break; }
             }
-            int emptySlot = -1;
-            for (int i = 0; i < 16; ++i) {
-                if (m_recycleSlots[i] == nullptr) { emptySlot = i; break; }
-            }
+            int emptySlot = findEmptyRecycleSlot();
             if (!hasRecycleSlot && emptySlot < 0) break; // 没有空间放升级单位
 
             // 收集3个源单位的所有装备
@@ -376,9 +344,7 @@ void Synera::checkAutoStarUp()
             }
             if (emptySlot < 0) {
                 // 使用刚释放的回收槽位置
-                for (int i = 0; i < 16; ++i) {
-                    if (m_recycleSlots[i] == nullptr) { emptySlot = i; break; }
-                }
+                emptySlot = findEmptyRecycleSlot();
             }
             if (emptySlot >= 0)
                 m_recycleSlots[emptySlot] = newUnit;
@@ -446,11 +412,6 @@ void Synera::startBattle()
     }
 
     m_showLevelLoss = false;
-    m_equipDropCap = m_currentLevel + 1;
-    m_equipDropCount = 0;
-    m_hitEffects.clear();
-    m_slashEffects.clear();
-    m_pendingDamageEvents.clear();
     for (int i = 0; i < 5; ++i) m_bondActive[i] = false; // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
@@ -465,7 +426,6 @@ void Synera::endLevel(bool playerWon)
 {
     // 清空战斗中的伤害/治疗显示残留
     m_hitEffects.clear();
-    m_slashEffects.clear();
     m_pendingDamageEvents.clear();
 
     // 清理所有刺客分身并重置羁绊效果
@@ -478,15 +438,7 @@ void Synera::endLevel(bool playerWon)
 
     if (playerWon) {
         // 收集场上存活英雄并按星数、类型排序
-        std::vector<Unit*> survivingHeroes;
-        for (int y = 0; y < Board::SIZE; ++y) {
-            for (int x = 0; x < Board::SIZE; ++x) {
-                Unit* u = m_board.getUnitAt(x, y);
-                if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
-                if (u->isDead() || u->isDisappeared()) continue;
-                survivingHeroes.push_back(u);
-            }
-        }
+        std::vector<Unit*> survivingHeroes = collectSurvivingHeroes();
 
         // 排序：星数高优先，同星按类型：战士>法师>辅助>刺客
         std::sort(survivingHeroes.begin(), survivingHeroes.end(),
@@ -496,24 +448,9 @@ void Synera::endLevel(bool playerWon)
                 return static_cast<int>(a->getType()) < static_cast<int>(b->getType());
             });
 
-        for (Unit* u : survivingHeroes) {
+        for (Unit* u : survivingHeroes)
             u->heal(20);
-            u->resetMoveTimer();
-            u->resetAttackTimer();
-
-            bool placed = false;
-            for (int i = 0; i < 16; ++i) {
-                if (m_recycleSlots[i] == nullptr) {
-                    m_recycleSlots[i] = u;
-                    placed = true;
-                    break;
-                }
-            }
-            if (placed)
-                m_board.removeUnit(u->getPosition().x, u->getPosition().y);
-            else
-                u->setDisappeared(true);
-        }
+        retireHeroesToRecycle(survivingHeroes);
 
         checkAutoStarUp();
 
@@ -547,31 +484,7 @@ void Synera::endLevel(bool playerWon)
             }
 
         // 场上英雄移回回收槽保留
-        std::vector<Unit*> survivingHeroes;
-        for (int y = 0; y < Board::SIZE; ++y) {
-            for (int x = 0; x < Board::SIZE; ++x) {
-                Unit* u = m_board.getUnitAt(x, y);
-                if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
-                if (u->isDead() || u->isDisappeared()) continue;
-                survivingHeroes.push_back(u);
-            }
-        }
-        for (Unit* u : survivingHeroes) {
-            u->resetMoveTimer();
-            u->resetAttackTimer();
-            bool placed = false;
-            for (int i = 0; i < 16; ++i) {
-                if (m_recycleSlots[i] == nullptr) {
-                    m_recycleSlots[i] = u;
-                    placed = true;
-                    break;
-                }
-            }
-            if (placed)
-                m_board.removeUnit(u->getPosition().x, u->getPosition().y);
-            else
-                u->setDisappeared(true);
-        }
+        retireHeroesToRecycle(collectSurvivingHeroes());
 
         // 若还有血量进入下一关，仍获得基础金币
         if (m_playerHp > 0)
@@ -700,13 +613,10 @@ void Synera::saveGame(const QString& filePath)
             dropArr.append(QJsonValue::Null);
     }
     root["equipDrops"] = dropArr;
-    root["equipDropCount"] = m_equipDropCount;
 
     QJsonDocument doc(root);
     QFile file(filePath);
-    if (file.exists())
-        file.remove();
-    if (file.open(QIODevice::WriteOnly)) {
+    if (file.open(QIODevice::WriteOnly)) { // WriteOnly 打开即截断，无需先 remove
         file.write(doc.toJson());
         file.close();
     }
@@ -798,7 +708,6 @@ void Synera::loadGame(const QString& filePath)
         Weapon* wp = createWeaponByName(ename);
         m_equipDrops.push_back(wp);
     }
-    m_equipDropCount = root["equipDropCount"].toInt(0);
 
     checkAutoStarUp();
 }
@@ -941,6 +850,84 @@ static QString typeLabel(UnitType t)
     return "?";
 }
 
+// 类型英文名（信息面板与招募区共用）
+static const char* UNIT_TYPE_NAMES[] = {"Warrior", "Mage", "Support", "Assassin"};
+
+// 统一计算单位装备框宽度：渲染与命中检测共用同一份计算，保证两边永远对齐
+static int uniformEquipBoxWidth(const Unit* u, int baseW, int textPad, bool bold)
+{
+    QFont f;
+    f.setPixelSize(6);
+    f.setBold(bold);
+    QFontMetrics fm(f);
+    int w = baseW;
+    const int maxSlots = u->getMaxEquipSlots();
+    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+        Weapon* ew = u->getEquip(static_cast<EquipType>(ei));
+        if (!ew && ei >= maxSlots) continue;
+        if (ew) {
+            int bw = fm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + textPad;
+            if (bw > w) w = bw;
+        }
+    }
+    return w;
+}
+
+int Synera::boardEquipBoxWidth(const Unit* u) const
+{
+    return uniformEquipBoxWidth(u, 14, 4, true);
+}
+
+int Synera::recycleEquipBoxWidth(const Unit* u) const
+{
+    return uniformEquipBoxWidth(u, 12, 3, false);
+}
+
+bool Synera::anyHeroOnPlayerHalf() const
+{
+    for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x)
+            if (dynamic_cast<Hero*>(m_board.getUnitAt(x, y)))
+                return true;
+    return false;
+}
+
+int Synera::findEmptyRecycleSlot() const
+{
+    for (int i = 0; i < (int)m_recycleSlots.size(); ++i)
+        if (m_recycleSlots[i] == nullptr)
+            return i;
+    return -1;
+}
+
+std::vector<Unit*> Synera::collectSurvivingHeroes() const
+{
+    std::vector<Unit*> heroes;
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (u->isDead() || u->isDisappeared()) continue;
+            heroes.push_back(u);
+        }
+    return heroes;
+}
+
+void Synera::retireHeroesToRecycle(std::vector<Unit*> heroes)
+{
+    for (Unit* u : heroes) {
+        u->resetMoveTimer();
+        u->resetAttackTimer();
+        int emptySlot = findEmptyRecycleSlot();
+        if (emptySlot >= 0) {
+            m_recycleSlots[emptySlot] = u;
+            m_board.removeUnit(u->getPosition().x, u->getPosition().y);
+        } else {
+            u->setDisappeared(true);
+        }
+    }
+}
+
 void Synera::renderUnits(QPainter& painter)
 {
     for (int y = 0; y < Board::SIZE; ++y) {
@@ -1021,25 +1008,11 @@ void Synera::renderUnits(QPainter& painter)
                 int boxH = 9, boxGap = 1;
                 int boxStartY = rc.top() + 2;
                 int maxSlots = unit->getMaxEquipSlots();
+                int maxBoxW = boardEquipBoxWidth(unit);
 
                 QFont eqFont;
                 eqFont.setPixelSize(6);
                 eqFont.setBold(true);
-                QFontMetrics eqFm(eqFont);
-
-                // 第一遍：计算所需最大宽度
-                int maxBoxW = 14;
-                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
-                    EquipType et = static_cast<EquipType>(ei);
-                    Weapon* ew = unit->getEquip(et);
-                    if (!ew && ei >= maxSlots) continue;
-                    if (ew) {
-                        int w = eqFm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 4;
-                        if (w > maxBoxW) maxBoxW = w;
-                    }
-                }
-
-                // 第二遍：统一宽度绘制
                 painter.setFont(eqFont);
                 for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                     EquipType et = static_cast<EquipType>(ei);
@@ -1082,7 +1055,6 @@ void Synera::renderUnits(QPainter& painter)
             int hitOffsetY = 0;
             for (auto& he : m_hitEffects) {
                 if (he.cellX != x || he.cellY != y) continue;
-                if (!he.alive) continue;
                 QColor hitColor = he.amount >= 0 ? QColor(80, 255, 80) : QColor(255, 80, 80);
                 QString hitText = he.amount >= 0
                     ? QString("+%1").arg(he.amount)
@@ -1154,15 +1126,14 @@ void Synera::renderHeroInfo(QPainter& painter)
         painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
 
         // 名称
-        const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
         QFont nameFont;
         nameFont.setPixelSize(8);
         nameFont.setBold(true);
         painter.setFont(nameFont);
         painter.setPen(QColor(200, 200, 220));
-        painter.drawText(colorRect.right() + 6, panelRect.top() + 12, names[(int)slot.type]);
+        painter.drawText(colorRect.right() + 6, panelRect.top() + 12, UNIT_TYPE_NAMES[(int)slot.type]);
 
-        // 属性数据
+        // 属性数据（数值直接引用各类的 BASE 常量，避免与实际数值漂移）
         QFont statFont;
         statFont.setPixelSize(7);
         painter.setFont(statFont);
@@ -1173,20 +1144,20 @@ void Synera::renderHeroInfo(QPainter& painter)
         int baseCost = heroCost(slot.type);
         switch (slot.type) {
             case UnitType::Warrior:
-                painter.drawText(sx, sy,        "HP:100  ATK:20");
-                painter.drawText(sx, sy + lh,   "Rng:1  Spd:60/120");
+                painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(WarriorHero::BASE_HP).arg(WarriorHero::BASE_ATK));
+                painter.drawText(sx, sy + lh, "Rng:1  Spd:60/120");
                 break;
             case UnitType::Mage:
-                painter.drawText(sx, sy,        "HP:50  ATK:10");
-                painter.drawText(sx, sy + lh,   "Rng:4  Spd:60/120");
+                painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(MageHero::BASE_HP).arg(MageHero::BASE_ATK));
+                painter.drawText(sx, sy + lh, "Rng:4  Spd:60/120");
                 break;
             case UnitType::Support:
-                painter.drawText(sx, sy,        "HP:80  Heal:20");
-                painter.drawText(sx, sy + lh,   "Rng:2  Spd:60/120");
+                painter.drawText(sx, sy,      QString("HP:%1  Heal:%2").arg(SupportHero::BASE_HP).arg(SupportHero::BASE_HEAL));
+                painter.drawText(sx, sy + lh, "Rng:2  Spd:60/120");
                 break;
             case UnitType::Assassin:
-                painter.drawText(sx, sy,        "HP:15  ATK:50");
-                painter.drawText(sx, sy + lh,   "Rng:1  Spd:60/80");
+                painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(AssassinHero::BASE_HP).arg(AssassinHero::BASE_ATK));
+                painter.drawText(sx, sy + lh, "Rng:1  Spd:60/80");
                 break;
         }
         painter.setPen(QColor(255, 210, 50));
@@ -1266,13 +1237,12 @@ void Synera::renderRecruitment(QPainter& painter)
             painter.drawText(colorRect, Qt::AlignCenter, typeLabel(slot.type));
 
             // 名称
-            const char* names[] = {"Warrior", "Mage", "Support", "Assassin"};
             QFont nameFont;
             nameFont.setPixelSize(8);
             nameFont.setBold(true);
             painter.setFont(nameFont);
             painter.setPen(QColor(200, 200, 220));
-            painter.drawText(colorRect.right() + 5, rc.top() + 12, names[(int)slot.type]);
+            painter.drawText(colorRect.right() + 5, rc.top() + 12, UNIT_TYPE_NAMES[(int)slot.type]);
 
             // 价格（右侧）
             bool canBuy = (m_gold >= slot.price);
@@ -1327,9 +1297,7 @@ void Synera::renderRecruitment(QPainter& painter)
 
 QRect Synera::recycleSlotRect(int row, int col) const
 {
-    int totalW = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
-    int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
-    return QRect(startX + col * (RECYCLE_SLOT_W + RECYCLE_SPACING),
+    return QRect(RECYCLE_START_X + col * (RECYCLE_SLOT_W + RECYCLE_SPACING),
                  RECYCLE_Y + row * (RECYCLE_SLOT_H + 8),
                  RECYCLE_SLOT_W, RECYCLE_SLOT_H);
 }
@@ -1345,8 +1313,7 @@ int Synera::findRecycleSlotAt(const QPoint& pixel) const
 
 void Synera::renderRecycleSlots(QPainter& painter)
 {
-    int totalW = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
-    int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
+    int startX = RECYCLE_START_X;
 
     // 标题常驻
     QFont titleFont;
@@ -1407,24 +1374,10 @@ void Synera::renderRecycleSlots(QPainter& painter)
                 int maxSlots = u->getMaxEquipSlots();
                 int eqBoxH = 8, eqBoxGap = 1;
                 int eqBoxStartY = rc.top() + 2;
+                int maxEqBoxW = recycleEquipBoxWidth(u);
 
                 QFont eqFont;
                 eqFont.setPixelSize(6);
-                QFontMetrics eqFm(eqFont);
-
-                // 第一遍：计算所需最大宽度
-                int maxEqBoxW = 12;
-                for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
-                    EquipType et = static_cast<EquipType>(ei);
-                    Weapon* ew = u->getEquip(et);
-                    if (!ew && ei >= maxSlots) continue;
-                    if (ew) {
-                        int w = eqFm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 3;
-                        if (w > maxEqBoxW) maxEqBoxW = w;
-                    }
-                }
-
-                // 第二遍：统一宽度绘制
                 painter.setFont(eqFont);
                 for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                     EquipType et = static_cast<EquipType>(ei);
@@ -1479,13 +1432,11 @@ void Synera::tryEquipDrop()
     Weapon* wp = w.get();
     m_weapons.push_back(std::move(w));
     m_equipDrops.push_back(wp);
-    ++m_equipDropCount;
 }
 
 void Synera::renderEquipDrops(QPainter& painter)
 {
-    int totalW = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
-    int startX = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - totalW) / 2;
+    int startX = RECYCLE_START_X;
     int dropY = RECYCLE_Y + 2 * (RECYCLE_SLOT_H + 8) + 8;
 
     // 标题
@@ -1524,16 +1475,15 @@ void Synera::renderEquipDrops(QPainter& painter)
         }
     }
 
-    // pending/dragged equip hint
-    Weapon* hintWeapon = m_draggedWeapon ? m_draggedWeapon : m_pendingEquip;
-    if (hintWeapon) {
+    // 拖拽中的装备提示
+    if (m_draggedWeapon) {
         painter.setPen(QColor(255, 210, 80));
         QFont hintFont;
         hintFont.setPixelSize(8);
         hintFont.setBold(true);
         painter.setFont(hintFont);
         QString hint = QString("Drag onto hero to equip: %1")
-            .arg(QString::fromStdString(hintWeapon->getDisplayName()));
+            .arg(QString::fromStdString(m_draggedWeapon->getDisplayName()));
         painter.drawText(startX, dropY + slotH + 22, hint);
     }
 
@@ -1565,21 +1515,7 @@ Unit* Synera::findBoardEquipSlotAt(const QPoint& pixel, EquipType& outType) cons
             int boxH = 9, boxGap = 1;
             int boxStartY = rc.top() + 2;
             int maxSlots = u->getMaxEquipSlots();
-            QFont eqFont;
-            eqFont.setPixelSize(6);
-            eqFont.setBold(true);
-            QFontMetrics fm(eqFont);
-            // 计算统一宽度（与渲染一致）
-            int maxBoxW = 14;
-            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
-                EquipType et = static_cast<EquipType>(ei);
-                Weapon* ew = u->getEquip(et);
-                if (!ew && ei >= maxSlots) continue;
-                if (ew) {
-                    int w = fm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 4;
-                    if (w > maxBoxW) maxBoxW = w;
-                }
-            }
+            int maxBoxW = boardEquipBoxWidth(u); // 与渲染共用同一计算
             if (pixel.x() < rc.right() - maxBoxW - 2 || pixel.x() > rc.right()) continue;
             for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                 EquipType et = static_cast<EquipType>(ei);
@@ -1608,20 +1544,7 @@ Unit* Synera::findRecycleEquipSlotAt(const QPoint& pixel, EquipType& outType) co
             int eqBoxH = 8, eqBoxGap = 1;
             int eqBoxStartY = rc.top() + 2;
             int maxSlots = u->getMaxEquipSlots();
-            QFont eqFont;
-            eqFont.setPixelSize(6);
-            QFontMetrics fm(eqFont);
-            // 计算统一宽度（与渲染一致）
-            int maxEqBoxW = 12;
-            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
-                EquipType et = static_cast<EquipType>(ei);
-                Weapon* ew = u->getEquip(et);
-                if (!ew && ei >= maxSlots) continue;
-                if (ew) {
-                    int w = fm.horizontalAdvance(QString::fromStdString(ew->getDisplayName())) + 3;
-                    if (w > maxEqBoxW) maxEqBoxW = w;
-                }
-            }
+            int maxEqBoxW = recycleEquipBoxWidth(u); // 与渲染共用同一计算
             if (pixel.x() < rc.right() - maxEqBoxW - 2 || pixel.x() > rc.right()) continue;
             for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
                 EquipType et = static_cast<EquipType>(ei);
@@ -1768,12 +1691,7 @@ void Synera::renderUI(QPainter& painter)
         int btnX = textX, btnY = BOARD_OFFSET_Y + 55;
         m_startButtonRect = QRect(btnX, btnY, btnW, btnH);
 
-        bool hasBoardHero = false;
-        for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
-            for (int x = 0; x < Board::SIZE; ++x) {
-                Unit* u = m_board.getUnitAt(x, y);
-                if (u && dynamic_cast<Hero*>(u)) { hasBoardHero = true; break; }
-            }
+        bool hasBoardHero = anyHeroOnPlayerHalf();
 
         QColor btnC = hasBoardHero ? QColor(55, 150, 55) : QColor(75, 75, 75);
         painter.setBrush(btnC);
@@ -1886,8 +1804,6 @@ QRect Synera::cellRect(int x, int y) const
                  BOARD_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
 }
 
-Unit* Synera::findUnitAt(int x, int y) const { return m_board.getUnitAt(x, y); }
-
 int Synera::countBoardHeroes() const
 {
     int count = 0;
@@ -1923,13 +1839,8 @@ void Synera::mousePressEvent(QMouseEvent *event)
     if (m_phase == GamePhase::Preparation) {
         // 开始战斗按钮
         if (m_startButtonRect.contains(pos)) {
-            bool hasBoardHero = false;
-            for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
-                for (int x = 0; x < Board::SIZE; ++x) {
-                    Unit* u = m_board.getUnitAt(x, y);
-                    if (u && dynamic_cast<Hero*>(u)) { hasBoardHero = true; break; }
-                }
-            if (hasBoardHero) startBattle();
+            if (anyHeroOnPlayerHalf())
+                startBattle();
             return;
         }
 
@@ -1947,14 +1858,7 @@ void Synera::mousePressEvent(QMouseEvent *event)
         if (recruitIdx >= 0 && !m_recruitSlots[recruitIdx].empty) {
             int cost = m_recruitSlots[recruitIdx].price;
             if (m_gold >= cost) {
-                // 找一个空回收槽
-                int emptySlot = -1;
-                for (int i = 0; i < 16; ++i) {
-                    if (m_recycleSlots[i] == nullptr) {
-                        emptySlot = i;
-                        break;
-                    }
-                }
+                int emptySlot = findEmptyRecycleSlot();
                 if (emptySlot >= 0) {
                     m_gold -= cost;
                     Unit* u = createUnitFromPool(m_recruitSlots[recruitIdx].type, true);
@@ -1982,19 +1886,12 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 装备区 / 英雄装备槽 — 开始拖拽装备
+        // 装备区 / 英雄装备槽 — 开始拖拽装备。
+        // 命中判定只在 processWeaponDragStart 内做一遍，
+        // 拖起来则不再进入单位拖拽
         if (!m_draggedUnit && !m_draggedWeapon) {
-            int dropIdx = findEquipDropAt(pos);
-            if (dropIdx >= 0 && dropIdx < (int)m_equipDrops.size() && m_equipDrops[dropIdx]) {
-                processWeaponDragStart(pos);
-                return;
-            }
-            // 点击英雄装备槽卸下
-            EquipType dummyType;
-            if (findBoardEquipSlotAt(pos, dummyType) || findRecycleEquipSlotAt(pos, dummyType)) {
-                processWeaponDragStart(pos);
-                if (m_draggedWeapon) return;
-            }
+            processWeaponDragStart(pos);
+            if (m_draggedWeapon) return;
         }
 
         processDragStart(pos);
@@ -2070,28 +1967,32 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
 {
     if (!m_draggedWeapon) return;
 
+    // 放到英雄身上：先尝试合成，失败则装备；两者都不行返回 false（返还来源）
+    auto tryPlaceOnHero = [&](Unit* u) -> bool {
+        if (trySynthesize(u, m_draggedWeapon)) {
+            m_draggedWeapon = nullptr;
+            update();
+            return true;
+        }
+        if (u->equip(m_draggedWeapon)) {
+            m_draggedWeapon = nullptr;
+            m_dragWeaponFromDropIdx = -1;
+            m_dragWeaponFromUnit = nullptr;
+            update();
+            return true;
+        }
+        return false; // 槽位满或类型冲突
+    };
+
     // 1) 放到棋盘英雄上
     for (int y = 0; y < Board::SIZE; ++y) {
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u->isDead() || u->isDisappeared()) continue;
             if (!dynamic_cast<Hero*>(u)) continue;
-            QRect rc = cellRect(x, y);
-            if (rc.contains(mousePos)) {
-                // 先尝试合成
-                if (trySynthesize(u, m_draggedWeapon)) {
-                    m_draggedWeapon = nullptr;
-                    update();
+            if (cellRect(x, y).contains(mousePos)) {
+                if (tryPlaceOnHero(u))
                     return;
-                }
-                if (u->equip(m_draggedWeapon)) {
-                    m_draggedWeapon = nullptr;
-                    m_dragWeaponFromDropIdx = -1;
-                    m_dragWeaponFromUnit = nullptr;
-                    update();
-                    return;
-                }
-                // 装备失败（槽位满或类型冲突），返还来源
                 break;
             }
         }
@@ -2104,21 +2005,9 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
             Unit* u = m_recycleSlots[idx];
             if (!u || u->isDead() || u->isDisappeared()) continue;
             if (!dynamic_cast<Hero*>(u)) continue;
-            QRect rc = recycleSlotRect(row, col);
-            if (rc.contains(mousePos)) {
-                // 先尝试合成
-                if (trySynthesize(u, m_draggedWeapon)) {
-                    m_draggedWeapon = nullptr;
-                    update();
+            if (recycleSlotRect(row, col).contains(mousePos)) {
+                if (tryPlaceOnHero(u))
                     return;
-                }
-                if (u->equip(m_draggedWeapon)) {
-                    m_draggedWeapon = nullptr;
-                    m_dragWeaponFromDropIdx = -1;
-                    m_dragWeaponFromUnit = nullptr;
-                    update();
-                    return;
-                }
                 break;
             }
         }
@@ -2189,7 +2078,6 @@ void Synera::processDragStart(const QPoint& mousePos)
     if (recycleIdx >= 0 && m_recycleSlots[recycleIdx] != nullptr) {
         m_draggedUnit = m_recycleSlots[recycleIdx];
         m_recycleSlots[recycleIdx] = nullptr;
-        m_dragFromShopIndex = -1;
         m_dragFromRecycleIndex = recycleIdx;
         m_dragCurrentPos = mousePos;
         return;
@@ -2199,7 +2087,6 @@ void Synera::processDragStart(const QPoint& mousePos)
     Unit* clicked = findUnitAtPixel(mousePos);
     if (clicked && dynamic_cast<Hero*>(clicked) && !clicked->isDisappeared()) {
         m_draggedUnit = clicked;
-        m_dragFromShopIndex = -1;
         m_dragFromRecycleIndex = -1;
         m_dragCurrentPos = mousePos;
         m_board.removeUnit(clicked->getPosition().x, clicked->getPosition().y);
@@ -2222,7 +2109,6 @@ void Synera::processDrop(const QPoint& mousePos)
             m_gold += heroCost(m_shop[i].type); // 返还基础价格
             m_draggedUnit->setDisappeared(true);
             m_draggedUnit = nullptr;
-            m_dragFromShopIndex = -1;
             m_dragFromRecycleIndex = -1;
             update();
             return;
@@ -2235,7 +2121,6 @@ void Synera::processDrop(const QPoint& mousePos)
         if (!m_recycleSlots[recycleIdx]) {
             m_recycleSlots[recycleIdx] = m_draggedUnit;
             m_draggedUnit = nullptr;
-            m_dragFromShopIndex = -1;
             m_dragFromRecycleIndex = -1;
             update();
             return;
@@ -2266,14 +2151,12 @@ void Synera::processDrop(const QPoint& mousePos)
                 // 人口已满，返还回收槽
                 m_recycleSlots[m_dragFromRecycleIndex] = m_draggedUnit;
                 m_draggedUnit = nullptr;
-                m_dragFromShopIndex = -1;
                 m_dragFromRecycleIndex = -1;
                 update();
                 return;
             }
         }
         m_board.placeUnit(m_draggedUnit, bestGx, bestGy);
-        m_dragFromShopIndex = -1;
         m_dragFromRecycleIndex = -1;
     } else {
         // 没有合法位置 → 返还来源
@@ -2287,7 +2170,6 @@ void Synera::processDrop(const QPoint& mousePos)
     }
 
     m_draggedUnit = nullptr;
-    m_dragFromShopIndex = -1;
     m_dragFromRecycleIndex = -1;
     update();
 }
@@ -2295,6 +2177,48 @@ void Synera::processDrop(const QPoint& mousePos)
 // ═══════════════════════════════════════════════════════════════
 // 自动战斗 — 每帧调用
 // ═══════════════════════════════════════════════════════════════
+
+// 技能结算样板：快照全场 HP → 释放技能 → 记录伤害/治疗数字 → 敌方死亡发金币并掉装备
+void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector<Unit*>&),
+                           std::vector<Unit*>& alive)
+{
+    std::map<Unit*, int> hpBefore;
+    for (Unit* au : alive)
+        if (!au->isDead() && !au->isDisappeared())
+            hpBefore[au] = au->getHp();
+
+    std::vector<Unit*> enemiesBefore;
+    for (Unit* eu : alive)
+        if (!eu->isDead() && !eu->isDisappeared() && dynamic_cast<Enemy*>(eu))
+            enemiesBefore.push_back(eu);
+
+    (caster->*skill)(m_board, alive);
+
+    for (auto& kv : hpBefore) {
+        if (kv.first->isDead() || kv.first->isDisappeared()) continue;
+        if (kv.first->hasReviveTriggered()) continue; // 复活触发，跳过死亡判定
+        int diff = kv.first->getHp() - kv.second;
+        if (diff != 0)
+            m_pendingDamageEvents[kv.first].push_back(diff);
+    }
+    for (Unit* eu : enemiesBefore) {
+        if (eu->isDead() && !eu->hasReviveTriggered()) {
+            m_pendingGold += enemyGoldValue(eu);
+            tryEquipDrop();
+        }
+    }
+}
+
+// 吟咏魔典羁绊：法师施放者释放技能点时共享给其他己技巧师
+void Synera::shareManaToMages(Unit* caster, const std::vector<Unit*>& alive) const
+{
+    if (!(m_bondActive[1] && caster->getType() == UnitType::Mage
+          && dynamic_cast<Hero*>(caster) && !caster->isClone()))
+        return;
+    for (Unit* mu : alive)
+        if (mu != caster && mu->getType() == UnitType::Mage && dynamic_cast<Hero*>(mu) && !mu->isClone())
+            mu->gainMana();
+}
 
 void Synera::processBurningTick(std::vector<Unit*>& alive)
 {
@@ -2390,38 +2314,13 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
             continue;
         }
 
-        // 正常释放技能：记录位置和 HP 用于伤害显示
+        // 正常释放技能（结算样板见 castAndSettle）
         Position posBefore = assassin->getPosition();
-        std::map<Unit*, int> hpBefore;
-        for (Unit* au : alive) {
-            if (!au->isDead() && !au->isDisappeared())
-                hpBefore[au] = au->getHp();
-        }
-        std::vector<Unit*> enemiesBefore;
-        for (Unit* eu : alive) {
-            if (!eu->isDead() && !eu->isDisappeared() && dynamic_cast<Enemy*>(eu))
-                enemiesBefore.push_back(eu);
-        }
-
-        assassin->useSkill(m_board, alive);
+        castAndSettle(assassin, &Unit::useSkill, alive);
 
         // 仅当确实瞬移了（位置改变）才重置法力值，否则保留技能点
         if (!(assassin->getPosition() == posBefore))
             assassin->resetMana();
-
-        for (auto& kv : hpBefore) {
-            if (kv.first->isDead() || kv.first->isDisappeared()) continue;
-            if (kv.first->hasReviveTriggered()) continue; // 复活触发，跳过死亡判定
-            int diff = kv.first->getHp() - kv.second;
-            if (diff != 0)
-                m_pendingDamageEvents[kv.first].push_back(diff);
-        }
-        for (Unit* eu : enemiesBefore) {
-            if (eu->isDead() && !eu->hasReviveTriggered()) {
-                m_pendingGold += enemyGoldValue(eu);
-                tryEquipDrop();
-            }
-        }
     }
 }
 
@@ -2432,10 +2331,6 @@ void Synera::processCombatFrame()
         std::remove_if(m_hitEffects.begin(), m_hitEffects.end(),
             [this](const HitEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
         m_hitEffects.end());
-    m_slashEffects.erase(
-        std::remove_if(m_slashEffects.begin(), m_slashEffects.end(),
-            [this](const SlashEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
-        m_slashEffects.end());
 
     struct Move { Unit* unit; Position to; };
     std::vector<Move> moves;
@@ -2472,6 +2367,12 @@ void Synera::processCombatFrame()
         Position pos = u->getPosition();
 
         u->incrementTimers();
+
+        // Boss 进阶技能：第二法力值满自动释放（米字路径攻击）
+        if (u->getMaxMana2() > 0 && u->getMana2() >= u->getMaxMana2()) {
+            castAndSettle(u, &Unit::useSkill2, alive);
+            u->resetMana2();
+        }
 
         // ── 法力值满 → 释放技能（刺客由 processAssassinSkills 统一处理）──
         if (u->getMana() >= u->getMaxMana() && u->getType() != UnitType::Assassin) {
@@ -2510,39 +2411,11 @@ void Synera::processCombatFrame()
             if (!hasValidTarget) {
                 // 无有效目标，保留技能点，继续移动/攻击
             } else {
-                // 记录技能前 HP
-                std::map<Unit*, int> hpBefore;
-                for (Unit* au : alive) {
-                    if (!au->isDead() && !au->isDisappeared())
-                        hpBefore[au] = au->getHp();
-                }
-
-                std::vector<Unit*> enemiesBeforeSkill;
-                for (Unit* eu : alive) {
-                    if (!eu->isDead() && !eu->isDisappeared()
-                        && dynamic_cast<Enemy*>(eu) != nullptr)
-                        enemiesBeforeSkill.push_back(eu);
-                }
-
-                u->useSkill(m_board, alive);
+                castAndSettle(u, &Unit::useSkill, alive);
                 u->resetMana();
                 u->resetMoveTimer();
                 u->resetAttackTimer();
-
-                for (auto& kv : hpBefore) {
-                    if (kv.first->isDead() || kv.first->isDisappeared()) continue;
-                    if (kv.first->hasReviveTriggered()) continue;
-                    int diff = kv.first->getHp() - kv.second;
-                    if (diff != 0)
-                        m_pendingDamageEvents[kv.first].push_back(diff);
-                }
-
-                for (Unit* eu : enemiesBeforeSkill) {
-                    if (eu->isDead() && !eu->hasReviveTriggered()) {
-                        m_pendingGold += enemyGoldValue(eu);
-                        tryEquipDrop();
-                    }
-                }
+                u->gainMana2(); // Boss 进阶技能充能（其他单位 maxMana2=0，空操作）
                 continue;
             }
         }
@@ -2557,11 +2430,7 @@ void Synera::processCombatFrame()
                 int healed = healTarget->heal(u->getHealAmount());
                 m_pendingDamageEvents[healTarget].push_back(healed);
                 u->gainMana();
-                if (m_bondActive[1] && u->getType() == UnitType::Mage && dynamic_cast<Hero*>(u) && !u->isClone()) {
-                    for (Unit* mu : alive)
-                        if (mu != u && mu->getType() == UnitType::Mage && dynamic_cast<Hero*>(mu) && !mu->isClone())
-                            mu->gainMana();
-                }
+                shareManaToMages(u, alive);
                 u->resetAttackTimer();
             } else if (!inRange) {
                 u->resetAttackTimer();
@@ -2593,11 +2462,8 @@ void Synera::processCombatFrame()
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                     int dealt = u->attack(*target);
                     u->gainMana();
-                    if (m_bondActive[1] && u->getType() == UnitType::Mage && dynamic_cast<Hero*>(u) && !u->isClone()) {
-                        for (Unit* mu : alive)
-                            if (mu != u && mu->getType() == UnitType::Mage && dynamic_cast<Hero*>(mu) && !mu->isClone())
-                                mu->gainMana();
-                    }
+                    u->gainMana2(); // Boss 进阶技能充能（其他单位空操作）
+                    shareManaToMages(u, alive);
                     m_pendingDamageEvents[target].push_back(-dealt);
 
                     if (target->isDead() && !target->hasReviveTriggered()) {
@@ -2710,8 +2576,7 @@ void Synera::flushDamageEvents(const std::vector<Unit*>& alive)
                 u->getPosition().y,
                 amt,
                 m_frameCounter,
-                duration,
-                true
+                duration
             });
         }
     }
@@ -2934,28 +2799,35 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
     }
 }
 
+// 羁绊激活阈值（唯一来源，实时判定与准备阶段预览共用）
+void Synera::bondStatesFromCounts(int warriorCount, int mageCount,
+                                  int supportCount, int assassinCount, bool outActive[5])
+{
+    outActive[0] = (warriorCount >= 3);
+    outActive[1] = (mageCount >= 2);
+    outActive[2] = (supportCount >= 2);
+    outActive[3] = (assassinCount >= 2);
+    outActive[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+}
+
 void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
 {
     // 统计棋盘上玩家方英雄类型
-    int warriorCount = 0, mageCount = 0, supportCount = 0, assassinCount = 0;
     std::vector<Unit*> warriors, mages, supports, assassins;
     for (Unit* u : alive) {
         if (dynamic_cast<Hero*>(u) == nullptr) continue;
         switch (u->getType()) {
-            case UnitType::Warrior: ++warriorCount; warriors.push_back(u); break;
-            case UnitType::Mage: ++mageCount; mages.push_back(u); break;
-            case UnitType::Support: ++supportCount; supports.push_back(u); break;
-            case UnitType::Assassin: ++assassinCount; assassins.push_back(u); break;
+            case UnitType::Warrior: warriors.push_back(u); break;
+            case UnitType::Mage: mages.push_back(u); break;
+            case UnitType::Support: supports.push_back(u); break;
+            case UnitType::Assassin: assassins.push_back(u); break;
             default: break;
         }
     }
 
     bool newBond[5];
-    newBond[0] = (warriorCount >= 3);
-    newBond[1] = (mageCount >= 2);
-    newBond[2] = (supportCount >= 2);
-    newBond[3] = (assassinCount >= 2);
-    newBond[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+    bondStatesFromCounts((int)warriors.size(), (int)mages.size(),
+                         (int)supports.size(), (int)assassins.size(), newBond);
 
     for (int i = 0; i < 5; ++i) {
         if (newBond[i] && !m_bondActive[i]) {
@@ -2972,76 +2844,60 @@ void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
 void Synera::previewBonds()
 {
     // 准备阶段预览：只判定不生效
+    std::vector<Unit*> heroes = collectSurvivingHeroes();
     int warriorCount = 0, mageCount = 0, supportCount = 0, assassinCount = 0;
-    for (int y = 0; y < Board::SIZE; ++y) {
-        for (int x = 0; x < Board::SIZE; ++x) {
-            Unit* u = m_board.getUnitAt(x, y);
-            if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (dynamic_cast<Hero*>(u) == nullptr) continue;
-            switch (u->getType()) {
-                case UnitType::Warrior: ++warriorCount; break;
-                case UnitType::Mage: ++mageCount; break;
-                case UnitType::Support: ++supportCount; break;
-                case UnitType::Assassin: ++assassinCount; break;
-                default: break;
-            }
+    for (Unit* u : heroes) {
+        switch (u->getType()) {
+            case UnitType::Warrior: ++warriorCount; break;
+            case UnitType::Mage: ++mageCount; break;
+            case UnitType::Support: ++supportCount; break;
+            case UnitType::Assassin: ++assassinCount; break;
+            default: break;
         }
     }
-    m_bondActive[0] = (warriorCount >= 3);
-    m_bondActive[1] = (mageCount >= 2);
-    m_bondActive[2] = (supportCount >= 2);
-    m_bondActive[3] = (assassinCount >= 2);
-    m_bondActive[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+    bondStatesFromCounts(warriorCount, mageCount, supportCount, assassinCount, m_bondActive);
 }
 
 void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive)
 {
-    int cloneCount = static_cast<int>(assassins.size());
+    // 在 (cx,cy) 生成分身（星-1、0 法力、继承已激活的全体羁绊）
+    auto spawnCloneAt = [&](Unit* src, int cx, int cy) {
+        Unit* clone = createUnitFromPool(UnitType::Assassin, true,
+                                         std::max(0, src->getStarLevel() - 1));
+        clone->setClone(true);
+        clone->setMana(0); // 分身从0法力值开始
+        if (m_bondActive[4]) {
+            clone->applyBondManaMod(-20);
+            clone->applyBondAtkBonus(20);
+            clone->applyBondHpMult(1.5);
+        }
+        m_board.placeUnit(clone, cx, cy);
+        alive.push_back(clone);
+    };
 
-    for (int i = 0; i < cloneCount && i < (int)assassins.size(); ++i) {
-        Unit* src = assassins[i];
-        int cloneStar = std::max(0, src->getStarLevel() - 1);
-
+    for (Unit* src : assassins) {
         bool placed = false;
-        for (int attempt = 0; attempt < 50; ++attempt) {
+
+        // 先在我方半场随机找空位
+        for (int attempt = 0; attempt < 50 && !placed; ++attempt) {
             int cx = std::rand() % Board::SIZE;
             int cy = Board::SIZE / 2 + std::rand() % (Board::SIZE / 2);
             if (!m_board.isOccupied(cx, cy)) {
-                Unit* clone = createUnitFromPool(UnitType::Assassin, true, cloneStar);
-                clone->setClone(true);
-                clone->setMana(0); // 分身从0法力值开始
-                // 继承已激活的全体羁绊效果
-                if (m_bondActive[4]) {
-                    clone->applyBondManaMod(-20);
-                    clone->applyBondAtkBonus(20);
-                    clone->applyBondHpMult(1.5);
-                }
-                m_board.placeUnit(clone, cx, cy);
-                alive.push_back(clone);
+                spawnCloneAt(src, cx, cy);
                 placed = true;
-                break;
             }
         }
+
+        // 随机失败 → 顺序扫描兜底
         if (!placed) {
-            for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
+            for (int y = Board::SIZE / 2; y < Board::SIZE && !placed; ++y) {
                 for (int x = 0; x < Board::SIZE; ++x) {
                     if (!m_board.isOccupied(x, y)) {
-                        Unit* clone = createUnitFromPool(UnitType::Assassin, true, cloneStar);
-                        clone->setClone(true);
-                        clone->setMana(0);
-                        // 继承已激活的全体羁绊效果
-                        if (m_bondActive[4]) {
-                            clone->applyBondManaMod(-20);
-                            clone->applyBondAtkBonus(20);
-                            clone->applyBondHpMult(1.5);
-                        }
-                        m_board.placeUnit(clone, x, y);
-                        alive.push_back(clone);
+                        spawnCloneAt(src, x, y);
                         placed = true;
                         break;
                     }
                 }
-                if (placed) break;
             }
         }
     }
@@ -3094,32 +2950,10 @@ static std::string getSynthesisResultName(const std::string& a, const std::strin
 
 Weapon* Synera::createWeaponByName(const std::string& name)
 {
-    Weapon* wp = nullptr;
-    if (name == "Iron Sword") {
-        auto w = std::make_unique<BasicAttackWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Chain Mail") {
-        auto w = std::make_unique<BasicDefenseWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Speed Gloves") {
-        auto w = std::make_unique<BasicSpeedWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Blue Crystal") {
-        auto w = std::make_unique<BasicManaWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Warhorse") {
-        auto w = std::make_unique<BasicRangeWeapon>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Rune Greatsword") {
-        auto w = std::make_unique<RuneGreatsword>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Swift Blade") {
-        auto w = std::make_unique<SwiftBlade>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Thorns Armor") {
-        auto w = std::make_unique<ThornsArmor>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Vitality Armor") {
-        auto w = std::make_unique<VitalityArmor>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Gale Gloves") {
-        auto w = std::make_unique<GaleGloves>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Revive Stone") {
-        auto w = std::make_unique<ReviveStone>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    } else if (name == "Sniper Crossbow") {
-        auto w = std::make_unique<SniperCrossbow>(); wp = w.get(); m_weapons.push_back(std::move(w));
-    }
+    // 名称→类的注册表集中在 Weapon::create（weapon.cpp），这里只管所有权
+    Weapon* wp = Weapon::create(name);
+    if (wp)
+        m_weapons.emplace_back(wp);
     return wp;
 }
 
@@ -3168,53 +3002,8 @@ bool Synera::trySynthesize(Unit* hero, Weapon* draggedWeapon)
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 复活逻辑 (复活石)
-// ═══════════════════════════════════════════════════════════════
-
-void Synera::reviveUnit(Unit* unit)
-{
-    if (!unit) return;
-    // 找到复活石并消耗
-    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
-        EquipType et = static_cast<EquipType>(ei);
-        Weapon* ew = unit->getEquip(et);
-        if (ew && ew->hasRevive()) {
-            unit->unequip(et);
-            // 标记武器为消失（已被消耗）
-            break;
-        }
-    }
-
-    // 回满生命值
-    unit->setHp(unit->getMaxHp());
-    // 清空法力值
-    unit->resetMana();
-    unit->resetMana2();
-    // 重置燃烧状态（复活清除debuff）
-    // 不重置 move/attack timer，保持
-
-    // 从我方半场复活：优先从最后一行开始找空位
-    bool placed = false;
-    for (int y = Board::SIZE - 1; y >= Board::SIZE / 2 && !placed; --y) {
-        for (int x = 0; x < Board::SIZE && !placed; ++x) {
-            if (!m_board.isOccupied(x, y)) {
-                unit->setDisappeared(false);
-                // 如果之前在棋盘上，先移除旧位置
-                // reviveUnit 被调用时 unit 应该还在棋盘上且有位置
-                Position oldPos = unit->getPosition();
-                if (m_board.getUnitAt(oldPos.x, oldPos.y) == unit)
-                    m_board.removeUnit(oldPos.x, oldPos.y);
-                m_board.placeUnit(unit, x, y);
-                placed = true;
-            }
-        }
-    }
-
-    if (!placed) {
-        // 实在没位置就原地复活
-        unit->setDisappeared(false);
-    }
-}
+// 复活逻辑：见 Unit::takeDamage（消耗复活石并满血）与
+// processCombatFrame（复活后移回我方半场），无独立函数
 // ═══════════════════════════════════════════════════════════════
 
 void Synera::renderBonds(QPainter& painter)

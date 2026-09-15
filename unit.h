@@ -80,7 +80,6 @@ public:
 
     void setPosition(int x, int y);
     void setHp(int hp);
-    void setMaxHp(int maxHp);
 
     // 装备系统
     bool equip(Weapon* weapon);
@@ -136,6 +135,24 @@ public:
     // 复活石
     bool hasReviveTriggered() const { return m_reviveTriggered; }
     void clearReviveTriggered() { m_reviveTriggered = false; }
+
+protected:
+    // 四职业技能的通用实现，Hero/Enemy 子类的 useSkill 一行转发即可，
+    // 敌我判定由 isHeroSide() 参数化，数值随 m_starLevel 缩放
+    void warriorSkill(Board& board, std::vector<Unit*>& allUnits);   // 对最近敌方造成技能伤害
+    void mageSkill(Board& board, std::vector<Unit*>& allUnits);      // 周围 5×5 敌方燃烧
+    void supportSkill(Board& board, std::vector<Unit*>& allUnits);   // 全场血量最低 2 个单位治疗
+    void assassinSkill(Board& board, std::vector<Unit*>& allUnits);  // 瞬移至最近敌方旁并造成伤害
+
+    // 敌我阵营判定（Hero 方 = true），索敌与技能共用
+    virtual bool isHeroSide() const = 0;
+
+public:
+    bool isOpponentOf(const Unit* other) const { return isHeroSide() != other->isHeroSide(); }
+
+    static constexpr int SKILL_DMG = 80;       // 战士/刺客技能伤害基数
+    static constexpr int SKILL_HEAL = 30;      // 辅助技能治疗基数
+    static constexpr int MAGE_BURN_BASE = 10;  // 法师燃烧基础伤害
 
 protected:
     std::string m_name;

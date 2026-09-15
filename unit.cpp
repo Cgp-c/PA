@@ -1,4 +1,7 @@
 #include "unit.h"
+#include "board.h"
+#include <algorithm>
+#include <cstdlib>
 
 Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType type,
            int moveSpeed, int attackSpeed, int startMana,
@@ -17,7 +20,6 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_maxMana2(maxMana2)
     , m_burning(false)
     , m_burningTurns(0)
-    , m_burningDamage(10)
     , m_moveSpeed(moveSpeed)
     , m_attackSpeed(attackSpeed)
     , m_moveTimer(0)
@@ -118,7 +120,11 @@ int Unit::getMana2() const { return m_mana2; }
 int Unit::getMaxMana2() const { return m_maxMana2; }
 void Unit::gainMana2()
 {
-    if (m_mana2 < m_maxMana2) ++m_mana2;
+    // 与 gainMana 同一套计量：每次事件积攒 MANA_PER_POINT，
+    // Boss 的 maxMana2=100 即"5 点法力"触发进阶技能
+    if (m_maxMana2 <= 0) return;
+    int regen = static_cast<int>(MANA_PER_POINT * getEquipManaRegenMultiplier());
+    m_mana2 = std::min(m_mana2 + regen, m_maxMana2);
 }
 void Unit::resetMana2() { m_mana2 = 0; }
 
@@ -160,7 +166,6 @@ void Unit::setStarLevel(int level) { m_starLevel = level; }
 
 void Unit::setPosition(int x, int y) { m_pos = Position(x, y); }
 void Unit::setHp(int hp) { m_hp = hp; }
-void Unit::setMaxHp(int maxHp) { m_maxHp = maxHp; }
 
 // ─── 装备系统 ──────────────────────────────────────────────────
 
@@ -365,3 +370,108 @@ void Unit::revertBondHealMult(double mult) { m_bondHealMult /= mult; }
 void Unit::revertBondRangeBonus(int bonus) { m_bondRangeBonus -= bonus; }
 void Unit::revertBondManaMod(int mod) { m_bondManaMod -= mod; }
 void Unit::revertBondAtkBonus(int bonus) { m_bondAtkBonus -= bonus; }
+
+// ─── 四职业技能的通用实现（Hero/Enemy 共用）─────────────────
+
+// 战士技能：对最近敌方造成伤害
+
+void Unit::warriorSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    int dmg = static_cast<int>(SKILL_DMG * (1 + (m_starLevel / 2) * 0.5));
+    Unit* best = nullptr;
+    int bestDist = 999;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        int d = manhattanDist(m_pos, u->getPosition());
+        if (d < bestDist) { bestDist = d; best = u; }
+    }
+    if (best) {
+        best->takeDamage(dmg);
+        if (best->isDead())
+            board.removeUnit(best->getPosition().x, best->getPosition().y);
+    }
+}
+
+// 法师技能：周围 5×5 敌方全体燃烧 4 回合
+
+void Unit::mageSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    (void)board;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        int dx = std::abs(u->getPosition().x - m_pos.x);
+        int dy = std::abs(u->getPosition().y - m_pos.y);
+        if (dx <= 2 && dy <= 2) {
+            u->applyBurning(4, MAGE_BURN_BASE + m_starLevel * 5);
+        }
+    }
+}
+
+// 辅助技能：全场生命值最低的 2 个单位各回复
+
+void Unit::supportSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    (void)board;
+    int healAmt = static_cast<int>(SKILL_HEAL * (1 + (m_starLevel / 2) * 0.5));
+    std::vector<Unit*> sorted = allUnits;
+    std::sort(sorted.begin(), sorted.end(), [](Unit* a, Unit* b) {
+        return a->getHp() < b->getHp();
+    });
+    int healed = 0;
+    for (Unit* u : sorted) {
+        if (u->isDead() || u->isDisappeared()) continue;
+        u->heal(healAmt);
+        if (++healed >= 2) break;
+    }
+}
+
+// 刺客技能：瞬移到最近敌方（曼哈顿距离≤2）的正下方，造成伤害
+
+void Unit::assassinSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    int dmg = static_cast<int>(SKILL_DMG * (1 + (m_starLevel / 2) * 0.5));
+    Unit* best = nullptr;
+    int bestDist = 999;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        int d = manhattanDist(m_pos, u->getPosition());
+        if (d <= 2 && d < bestDist) { bestDist = d; best = u; }
+    }
+    if (!best) return;
+
+    Position tp = best->getPosition();
+
+    struct Candidate { int x, y, dist; };
+    std::vector<Candidate> cand;
+    const int dx[] = {0, 0, -1, 1};
+    const int dy[] = {1, -1, 0, 0};
+
+    for (int i = 0; i < 4; ++i) {
+        int nx = tp.x + dx[i];
+        int ny = tp.y + dy[i];
+        if (!board.isValidPosition(nx, ny) || board.isOccupied(nx, ny)) continue;
+        cand.push_back({nx, ny, manhattanDist(m_pos, Position(nx, ny))});
+    }
+
+    if (cand.empty()) return;
+
+    std::sort(cand.begin(), cand.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.dist != b.dist) return a.dist < b.dist;
+        return a.y < b.y;
+    });
+
+    auto belowIt = std::find_if(cand.begin(), cand.end(), [&](const Candidate& c) {
+        return c.x == tp.x && c.y == tp.y + 1;
+    });
+    Candidate chosen = (belowIt != cand.end()) ? *belowIt : cand.front();
+
+    board.removeUnit(m_pos.x, m_pos.y);
+    board.placeUnit(this, chosen.x, chosen.y);
+
+    best->takeDamage(dmg);
+    if (best->isDead())
+        board.removeUnit(best->getPosition().x, best->getPosition().y);
+}
