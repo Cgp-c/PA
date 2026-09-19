@@ -58,6 +58,7 @@ void Unit::takeDamage(int damage)
     int effectiveDmg = damage - defense;
     if (effectiveDmg < 0) effectiveDmg = 0;
     m_hp -= effectiveDmg;
+    m_statTaken += effectiveDmg;   // 战斗统计：承受伤害
     if (m_hp <= 0) {
         // 检查复活石
         if (hasEquipRevive()) {
@@ -80,6 +81,14 @@ void Unit::takeDamage(int damage)
 }
 
 void Unit::setDisappeared(bool disappeared) { m_disappeared = disappeared; }
+
+void Unit::resetBattleStats()
+{
+    m_statDealt = 0;
+    m_statTaken = 0;
+    m_statHealed = 0;
+    m_statKills = 0;
+}
 
 int Unit::heal(int amount)
 {

@@ -136,6 +136,16 @@ public:
     bool hasReviveTriggered() const { return m_reviveTriggered; }
     void clearReviveTriggered() { m_reviveTriggered = false; }
 
+    // 战斗统计（每次开战重置，战后统计面板读取）
+    void resetBattleStats();
+    void addStatDealt(int v)   { m_statDealt += v; }
+    void addStatHealed(int v)  { m_statHealed += v; }
+    void addStatKill()         { ++m_statKills; }
+    int getStatDealt() const   { return m_statDealt; }
+    int getStatTaken() const   { return m_statTaken; }
+    int getStatHealed() const  { return m_statHealed; }
+    int getStatKills() const   { return m_statKills; }
+
 protected:
     // 四职业技能的通用实现，Hero/Enemy 子类的 useSkill 一行转发即可，
     // 敌我判定由 isHeroSide() 参数化，数值随 m_starLevel 缩放
@@ -183,6 +193,12 @@ protected:
     int m_bondAtkBonus = 0;
     bool m_isClone = false;
     bool m_reviveTriggered = false;
+
+    // 战斗统计
+    int m_statDealt = 0;
+    int m_statTaken = 0;
+    int m_statHealed = 0;
+    int m_statKills = 0;
 };
 
 #endif // UNIT_H

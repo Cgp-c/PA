@@ -38,6 +38,10 @@ qt_add_executable(Synera
     equipsynthwindow.cpp
     custombattlewindow.h
     custombattlewindow.cpp
+    startscreen.h
+    startscreen.cpp
+    postbattlestatswindow.h
+    postbattlestatswindow.cpp
 )
 
 target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)

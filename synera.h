@@ -15,6 +15,9 @@
 
 enum class GamePhase { Preparation, Battle };
 
+// 游戏模式（开始界面选择）
+enum class GameMode { Campaign, Endless, Custom };
+
 struct PoolSlot {
     UnitType type;
     int count;
@@ -66,6 +69,8 @@ struct GhostEffect {               // 刺客瞬移残影
 
 class EquipSynthWindow;
 class CustomBattleWindow;
+class StartScreen;
+class PostBattleStatsWindow;
 
 class Synera : public QMainWindow
 {
@@ -93,6 +98,15 @@ private:
     void initLevel();
     void startBattle();
     bool placeEnemyRandom(Unit* eu);   // 在敌方半场随机放置一个敌方单位
+
+    // 模式与开始界面
+    void setGameMode(GameMode mode);
+    void showStartScreen();
+    void spawnEndlessWave();           // 按当前编成 + 强化生成无尽波次
+    void evolveEndlessComp();          // 无尽波次演化（增员→升星→全体强化）
+    void showBattleStats(bool playerWon); // 收集快照并弹出战后统计面板
+    int  loadBestEndlessWave() const;
+    void saveBestEndlessWave(int wave) const;
     void endLevel(bool playerWon);
     Unit* createUnitFromPool(UnitType type, bool isHero, int starLevel = 0, bool isBoss = false);
     Unit* createUpgradedHero(UnitType type, int starLevel);
@@ -246,6 +260,16 @@ private:
     CustomBattleWindow* m_customBattleWindow = nullptr;
     QRect m_customButtonRect;             // 主界面“自定义难度”按钮
     bool m_customBattle = false;          // 当前战斗是否为自定义战斗
+
+    // 模式与开始界面
+    GameMode m_gameMode = GameMode::Campaign;
+    StartScreen* m_startScreen = nullptr;
+    PostBattleStatsWindow* m_statsWindow = nullptr;
+
+    // 无尽模式状态
+    int m_endlessWave = 1;                       // 当前波次（1 起）
+    std::vector<std::pair<int, int>> m_endlessComp; // (UnitType, 整星) 编成
+    int m_endlessBuffPct = 0;                    // 全部满星后的全体强化百分比
 
     // 人口上限
     int m_populationCap;

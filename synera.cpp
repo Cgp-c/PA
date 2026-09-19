@@ -6,6 +6,8 @@
 #include "weapon.h"
 #include "equipsynthwindow.h"
 #include "custombattlewindow.h"
+#include "startscreen.h"
+#include "postbattlestatswindow.h"
 #include "equipicons.h"
 #include <QPainter>
 #include <QPainterPath>
@@ -51,12 +53,36 @@ Synera::Synera(QWidget *parent)
     // 自动化验证钩子：SYNERA_SHOW_CUSTOM=1 时启动即打开自定义难度窗口
     if (qEnvironmentVariableIsSet("SYNERA_SHOW_CUSTOM"))
         showCustomBattleWindow();
+
+    // 开始界面：选择模式后再进入主窗口
+    m_startScreen = new StartScreen(nullptr);
+    connect(m_startScreen, &StartScreen::modeSelected, this, [this](int mode) {
+        GameMode gm = GameMode::Campaign;
+        if (mode == StartScreen::MODE_ENDLESS) gm = GameMode::Endless;
+        else if (mode == StartScreen::MODE_CUSTOM) gm = GameMode::Custom;
+        setGameMode(gm);
+    });
+
+    // 自动化验证钩子：SYNERA_AUTOMODE=campaign/endless/custom 跳过开始界面
+    if (qEnvironmentVariableIsSet("SYNERA_AUTOMODE")) {
+        const QString m = qEnvironmentVariable("SYNERA_AUTOMODE").trimmed().toLower();
+        if (m == "endless")          setGameMode(GameMode::Endless);
+        else if (m == "custom")      setGameMode(GameMode::Custom);
+        else                         setGameMode(GameMode::Campaign);
+    } else {
+        show();   // 先展示主窗口背景，开始界面悬浮其上
+        m_startScreen->show();
+        m_startScreen->raise();
+        m_startScreen->activateWindow();
+    }
 }
 
 Synera::~Synera()
 {
     delete m_equipSynthWindow;    // 主窗口析构时释放合成树窗口
     delete m_customBattleWindow;  // 释放自定义难度窗口
+    delete m_startScreen;         // 释放开始界面
+    delete m_statsWindow;         // 释放战后统计窗口
     delete ui;
 }
 
@@ -69,6 +95,149 @@ void Synera::showEquipSynthWindow()
     m_equipSynthWindow->show();
     m_equipSynthWindow->raise();
     m_equipSynthWindow->activateWindow();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 模式与开始界面
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::setGameMode(GameMode mode)
+{
+    m_gameMode = mode;
+    initGame();
+
+    if (mode == GameMode::Endless) {
+        // 无尽模式初始编成：四职业各 1 个 0 星
+        m_endlessWave = 1;
+        m_endlessBuffPct = 0;
+        m_endlessComp.clear();
+        const int types[] = {static_cast<int>(UnitType::Warrior),
+                             static_cast<int>(UnitType::Mage),
+                             static_cast<int>(UnitType::Support),
+                             static_cast<int>(UnitType::Assassin)};
+        for (int t : types) m_endlessComp.push_back({t, 0});
+    }
+
+    m_startScreen->hide();
+    setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    show();
+    raise();
+    activateWindow();
+}
+
+void Synera::showStartScreen()
+{
+    initGame();
+    hide();
+    m_startScreen->refreshBestWave();
+    m_startScreen->setWindowState((m_startScreen->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    m_startScreen->showNormal();
+    m_startScreen->raise();
+    m_startScreen->activateWindow();
+}
+
+void Synera::spawnEndlessWave()
+{
+    for (const auto& [type, star] : m_endlessComp) {
+        Unit* eu = createUnitFromPool(static_cast<UnitType>(type), false, star * 2);
+        if (!placeEnemyRandom(eu)) continue;
+        if (m_endlessBuffPct > 0) {
+            // 全体强化：HP ×(1+pct%)，ATK 加成 = 基础攻击 × pct%
+            int baseAtk = eu->getAttackDamage();
+            eu->applyBondHpMult(1.0 + m_endlessBuffPct / 100.0);
+            eu->applyBondAtkBonus(baseAtk * m_endlessBuffPct / 100);
+            eu->setHp(eu->getMaxHp());
+        }
+    }
+}
+
+void Synera::evolveEndlessComp()
+{
+    int total = static_cast<int>(m_endlessComp.size());
+
+    // 规则一：未达容量上限（敌方半场 32 格）→ 随机某类 +1 个（0 星）
+    if (total < CustomBattleWindow::MAX_ENEMIES) {
+        int type = std::rand() % 4;   // 四职业随机
+        m_endlessComp.push_back({type, 0});
+        return;
+    }
+
+    // 规则二：达上限 → 随机一个最低星单位升 1 星（全体同星时即随机升任一）
+    int minStar = 3;
+    for (const auto& [t, star] : m_endlessComp)
+        minStar = std::min(minStar, star);
+
+    if (minStar < 3) {
+        std::vector<int> candidates;
+        for (int i = 0; i < total; ++i)
+            if (m_endlessComp[i].second == minStar) candidates.push_back(i);
+        int pick = candidates[std::rand() % candidates.size()];
+        m_endlessComp[pick].second += 1;
+        return;
+    }
+
+    // 规则三：全部 3 星满星后，每再通关一次全体攻击/生命 +1%，无限叠加
+    m_endlessBuffPct += 1;
+}
+
+int Synera::loadBestEndlessWave() const
+{
+    QFile f(QString::fromUtf8("endless_best.txt"));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
+    bool ok = false;
+    int v = QString::fromUtf8(f.readAll()).trimmed().toInt(&ok);
+    return ok ? v : 0;
+}
+
+void Synera::saveBestEndlessWave(int wave) const
+{
+    QFile f(QString::fromUtf8("endless_best.txt"));
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    f.write(QString::number(wave).toUtf8());
+}
+
+void Synera::showBattleStats(bool playerWon)
+{
+    // 收集参战英雄的统计快照（此时 m_units 尚未清理，阵亡英雄也在内）
+    std::vector<PostBattleStatsWindow::StatRow> rows;
+    for (const auto& up : m_units) {
+        Unit* u = up.get();
+        if (!u || !isHeroSide(u)) continue;
+        PostBattleStatsWindow::StatRow r;
+        r.name = QString::fromStdString(u->getName());
+        r.type = static_cast<int>(u->getType());
+        r.star = u->getStarLevel() / 2;
+        r.dealt = u->getStatDealt();
+        r.taken = u->getStatTaken();
+        r.healed = u->getStatHealed();
+        r.kills = u->getStatKills();
+        rows.push_back(r);
+    }
+    std::sort(rows.begin(), rows.end(),
+              [](const PostBattleStatsWindow::StatRow& a, const PostBattleStatsWindow::StatRow& b) {
+                  return a.dealt > b.dealt;
+              });
+
+    QString title, subtitle;
+    if (m_gameMode == GameMode::Endless) {
+        title = playerWon ? QString::fromUtf8("无尽模式 - 第 %1 波 胜利").arg(m_endlessWave)
+                          : QString::fromUtf8("无尽模式 - 终止于第 %1 波").arg(m_endlessWave);
+    } else if (m_customBattle) {
+        title = QString::fromUtf8("自定义战斗 - %1").arg(playerWon ? QString::fromUtf8("胜利")
+                                                                    : QString::fromUtf8("失败"));
+    } else {
+        title = QString("Level %1 - %2").arg(m_currentLevel)
+                .arg(playerWon ? QString::fromUtf8("胜利") : QString::fromUtf8("失败"));
+    }
+    subtitle = QString::fromUtf8("按输出伤害排序 · 燃烧持续伤害与敌方数据未计入");
+
+    if (!m_statsWindow) m_statsWindow = new PostBattleStatsWindow(nullptr);
+    m_statsWindow->setResults(title, subtitle, rows);
+    // 后台进程弹新窗口会被 Windows 最小化到任务栏，showNormal 强制还原置前
+    m_statsWindow->setWindowState((m_statsWindow->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    m_statsWindow->showNormal();
+    m_statsWindow->raise();
+    m_statsWindow->activateWindow();
 }
 
 void Synera::showCustomBattleWindow()
@@ -173,17 +342,23 @@ void Synera::initGame()
     m_equipDrops.clear();
 
     // 自动化验证钩子：SYNERA_DEMO_UNITS=1 时在棋盘摆出全职业演示阵容
+    // SYNERA_DEMO_BATTLE=2 时只摆英雄不摆敌方（配合无尽模式快速验证胜利结算）
+    const bool demoHeroesOnly = (qEnvironmentVariable("SYNERA_DEMO_BATTLE") == QByteArray("2"));
     if (qEnvironmentVariableIsSet("SYNERA_DEMO_UNITS")) {
         const UnitType types[] = {UnitType::Warrior, UnitType::Mage,
                                   UnitType::Support, UnitType::Assassin};
         for (int i = 0; i < 4; ++i) {
-            Unit* h = createUnitFromPool(types[i], true);
+            Unit* h = createUnitFromPool(types[i], true, demoHeroesOnly ? 6 : 0);
             m_board.placeUnit(h, 1 + i * 2, 6);
-            Unit* e = createUnitFromPool(types[i], false);
-            m_board.placeUnit(e, 1 + i * 2, 1);
+            if (!demoHeroesOnly) {
+                Unit* e = createUnitFromPool(types[i], false);
+                m_board.placeUnit(e, 1 + i * 2, 1);
+            }
         }
+        if (!demoHeroesOnly) {
         Unit* boss = createUnitFromPool(UnitType::Boss, false, 0, true);
         m_board.placeUnit(boss, 4, 0);
+        }
         // 回收槽也放两个演示英雄（备战区立绘验证）
         m_recycleSlots[0] = createUnitFromPool(UnitType::Mage, true, 4);
         m_recycleSlots[1] = createUnitFromPool(UnitType::Warrior, true, 2);
@@ -480,7 +655,23 @@ bool Synera::placeEnemyRandom(Unit* eu)
 
 void Synera::startBattle()
 {
+    // 自定义模式的战斗只能从自定义难度窗口发起
+    if (m_gameMode == GameMode::Custom) return;
+
     auto placeRandom = [this](Unit* eu) { placeEnemyRandom(eu); };
+
+    // 每场战斗开始时重置所有单位的战斗统计
+    for (auto& up : m_units) if (up) up->resetBattleStats();
+
+    if (m_gameMode == GameMode::Endless) {
+        spawnEndlessWave();
+        m_showLevelLoss = false;
+        for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+        m_phase = GamePhase::Battle;
+        m_frameCounter = 0;
+        m_burnTickCount = 0;
+        return;
+    }
 
     if (m_currentLevel <= 3) {
         // 关卡 1-3：每种类型 N 个 0 星敌方
@@ -540,8 +731,35 @@ void Synera::endLevel(bool playerWon)
     }
     for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
 
+    // ── 无尽模式结算 ──
+    if (m_gameMode == GameMode::Endless) {
+        showBattleStats(playerWon);
+        if (playerWon) {
+            std::vector<Unit*> survivingHeroes = collectSurvivingHeroes();
+            for (Unit* u : survivingHeroes)
+                u->heal(20);
+            retireHeroesToRecycle(survivingHeroes);
+            checkAutoStarUp();
+
+            m_gold += m_pendingGold;      // 击杀金币
+            m_gold += 100;                // 每波基础奖励（无尽无利息）
+            m_pendingGold = 0;
+
+            evolveEndlessComp();          // 编成演化：增员 → 升星 → 全体强化
+            ++m_endlessWave;
+        } else {
+            m_pendingGold = 0;
+            m_gameOver = true;
+            m_playerVictory = false;
+            if (m_endlessWave > loadBestEndlessWave())
+                saveBestEndlessWave(m_endlessWave);
+        }
+        return;
+    }
+
     // ── 自定义战斗结算：不影响关卡进度 / 玩家 HP，无利息与通关奖励 ──
     if (m_customBattle) {
+        showBattleStats(playerWon);
         if (playerWon) {
             std::vector<Unit*> survivingHeroes = collectSurvivingHeroes();
             for (Unit* u : survivingHeroes)
@@ -564,6 +782,9 @@ void Synera::endLevel(bool playerWon)
         initLevel();
         return;
     }
+
+    // 战役模式：结算前弹出战后统计
+    showBattleStats(playerWon);
 
     if (playerWon) {
         // 收集场上存活英雄并按星数、类型排序
@@ -2068,7 +2289,13 @@ void Synera::renderUI(QPainter& painter)
     lvlFont.setPixelSize(16);
     lvlFont.setBold(true);
     painter.setFont(lvlFont);
-    QString lvlText = QString("Level %1 / %2").arg(m_currentLevel).arg(MAX_LEVEL);
+    QString lvlText;
+    if (m_gameMode == GameMode::Endless)
+        lvlText = QString::fromUtf8("无尽 Wave %1").arg(m_endlessWave);
+    else if (m_gameMode == GameMode::Custom)
+        lvlText = QString::fromUtf8("自定义模式");
+    else
+        lvlText = QString("Level %1 / %2").arg(m_currentLevel).arg(MAX_LEVEL);
     if (m_customBattle)
         lvlText += QString::fromUtf8(" (自定义)");
     painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE / 2 - 50, infoY, lvlText);
@@ -2100,6 +2327,9 @@ void Synera::renderUI(QPainter& painter)
         if (m_playerVictory) {
             status = "VICTORY! All levels cleared!";
             painter.setPen(QColor(80, 255, 120));
+        } else if (m_gameMode == GameMode::Endless) {
+            status = QString::fromUtf8("无尽模式结束 - 共坚持 %1 波").arg(m_endlessWave);
+            painter.setPen(QColor(255, 80, 80));
         } else {
             status = "DEFEAT - GAME OVER";
             painter.setPen(QColor(255, 80, 80));
@@ -2125,8 +2355,9 @@ void Synera::renderUI(QPainter& painter)
         m_startButtonRect = QRect(btnX, btnY, btnW, btnH);
 
         bool hasBoardHero = anyHeroOnPlayerHalf();
+        bool battleAllowed = (m_gameMode != GameMode::Custom);   // 自定义模式战斗走专用窗口
 
-        QColor btnC = hasBoardHero ? QColor(55, 150, 55) : QColor(75, 75, 75);
+        QColor btnC = (hasBoardHero && battleAllowed) ? QColor(55, 150, 55) : QColor(75, 75, 75);
         painter.setBrush(btnC);
         painter.setPen(QPen(hasBoardHero ? QColor(90, 210, 90) : QColor(110, 110, 110), 2));
         painter.drawRoundedRect(m_startButtonRect, 8, 8);
@@ -2136,7 +2367,9 @@ void Synera::renderUI(QPainter& painter)
         btnFont.setPixelSize(13);
         btnFont.setBold(true);
         painter.setFont(btnFont);
-        painter.drawText(m_startButtonRect, Qt::AlignCenter, "Start Battle");
+        painter.drawText(m_startButtonRect, Qt::AlignCenter,
+                         battleAllowed ? QString("Start Battle")
+                                       : QString::fromUtf8("请用自定义难度窗口开战"));
 
         if (!hasBoardHero) {
             painter.setPen(QColor(200, 140, 40));
@@ -2272,7 +2505,7 @@ void Synera::mousePressEvent(QMouseEvent *event)
     if (m_phase == GamePhase::Preparation) {
         // 开始战斗按钮
         if (m_startButtonRect.contains(pos)) {
-            if (anyHeroOnPlayerHalf())
+            if (anyHeroOnPlayerHalf() && m_gameMode != GameMode::Custom)
                 startBattle();
             return;
         }
@@ -2639,9 +2872,13 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
         int diff = kv.first->getHp() - kv.second;
         if (diff != 0)
             m_pendingDamageEvents[kv.first].push_back(diff);
+        // 战斗统计：技能伤害/治疗归因给施法者（燃烧持续伤害另行结算，未计入）
+        if (diff < 0) caster->addStatDealt(-diff);
+        else if (diff > 0) caster->addStatHealed(diff);
     }
     for (Unit* eu : enemiesBefore) {
         if (eu->isDead() && !eu->hasReviveTriggered()) {
+            caster->addStatKill();   // 战斗统计：技能击杀
             m_pendingGold += enemyGoldValue(eu);
             tryEquipDrop();
         }
@@ -2932,6 +3169,7 @@ void Synera::processCombatFrame()
             // 治疗（独立计时器）
             if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                 int healed = healTarget->heal(u->getHealAmount());
+                u->addStatHealed(healed);   // 战斗统计：治疗量
 
                 // 治疗特效：被治疗者身上冒绿色 "+"
                 m_healEffects.push_back({
@@ -2975,6 +3213,7 @@ void Synera::processCombatFrame()
                 // 攻击（独立计时器）
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                     int dealt = u->attack(*target);
+                    u->addStatDealt(dealt);     // 战斗统计：普攻输出
 
                     // 命中特效：战士=斩击，刺客=快速斩击，法师=火球飞行弹道
                     Position tp = target->getPosition();
@@ -3002,6 +3241,7 @@ void Synera::processCombatFrame()
                     m_pendingDamageEvents[target].push_back(-dealt);
 
                     if (target->isDead() && !target->hasReviveTriggered()) {
+                        u->addStatKill();       // 战斗统计：击杀
                         bool isEnemy = isEnemySide(target);
                         if (isEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
                         m_board.removeUnit(target->getPosition().x, target->getPosition().y);
@@ -3631,10 +3871,12 @@ void Synera::checkLevelEnd()
 void Synera::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_R) {
-        initGame();
-    } else if (event->key() == Qt::Key_F5 && m_phase == GamePhase::Preparation && !m_gameOver) {
+        showStartScreen();   // 返回模式选择
+    } else if (event->key() == Qt::Key_F5 && m_phase == GamePhase::Preparation && !m_gameOver
+               && m_gameMode == GameMode::Campaign) {
         saveGame(SAVE_PATH);
-    } else if (event->key() == Qt::Key_F9 && m_phase == GamePhase::Preparation) {
+    } else if (event->key() == Qt::Key_F9 && m_phase == GamePhase::Preparation
+               && m_gameMode == GameMode::Campaign) {
         loadGame(SAVE_PATH);
     }
     QMainWindow::keyPressEvent(event);
