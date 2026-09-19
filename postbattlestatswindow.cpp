@@ -87,6 +87,12 @@ void PostBattleStatsWindow::paintEvent(QPaintEvent* event)
     painter.setFont(cellFont);
 
     int totalDealt = 0, totalTaken = 0, totalHealed = 0, totalKills = 0;
+    for (const StatRow& r : m_rows) {   // 合计覆盖全部行（含超出可视区被省略的行）
+        totalDealt += r.dealt;
+        totalTaken += r.taken;
+        totalHealed += r.healed;
+        totalKills += r.kills;
+    }
     const int maxRows = (PBS_H - PBS_ROWS_TOP - 70) / PBS_ROW_H;
     for (size_t i = 0; i < m_rows.size() && (int)i < maxRows; ++i) {
         const StatRow& r = m_rows[i];
@@ -124,10 +130,6 @@ void PostBattleStatsWindow::paintEvent(QPaintEvent* event)
         painter.drawText(QRect(colKills, y, 84, PBS_ROW_H - 2), Qt::AlignVCenter,
                          QString::number(r.kills));
 
-        totalDealt += r.dealt;
-        totalTaken += r.taken;
-        totalHealed += r.healed;
-        totalKills += r.kills;
     }
 
     // 合计行

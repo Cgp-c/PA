@@ -112,11 +112,11 @@ void Synera::setGameMode(GameMode mode)
     if (m_gameMode == GameMode::PvP && mode != GameMode::PvP)
         closePvpConnection();   // 离开联机模式时断开
     m_gameMode = mode;
-    initGame();
     m_pvpScoreLocal = m_pvpScoreRemote = 0;
 
+    // 无尽模式初始编成需在 initGame() 之前就绪（initGame 内的演示自动开战
+    // 钩子会读取编成生成波次；此前的顺序会导致空编成“秒胜”）
     if (mode == GameMode::Endless) {
-        // 无尽模式初始编成：四职业各 1 个 0 星
         m_endlessWave = 1;
         m_endlessBuffPct = 0;
         m_endlessComp.clear();
@@ -126,6 +126,8 @@ void Synera::setGameMode(GameMode mode)
                              static_cast<int>(UnitType::Assassin)};
         for (int t : types) m_endlessComp.push_back({t, 0});
     }
+
+    initGame();
 
     if (mode == GameMode::PvP) {
         // 联机模式：打开大厅（连接成功后进入准备阶段）
@@ -163,6 +165,7 @@ void Synera::setGameMode(GameMode mode)
 
 void Synera::showStartScreen()
 {
+    closePvpConnection();   // 返回模式选择时断开联机，避免残留连接
     initGame();
     hide();
     m_startScreen->refreshBestWave();
@@ -529,9 +532,14 @@ void Synera::showCustomBattleWindow()
 void Synera::startCustomBattle()
 {
     if (!m_customBattleWindow) return;
+    if (m_gameMode != GameMode::Custom) return;   // 自定义战斗只在自定义模式下可用
     if (m_phase != GamePhase::Preparation || m_gameOver) return;
     if (countBoardHeroes() <= 0) return;          // 至少一名上场英雄
     if (!m_customBattleWindow->isValid()) return; // 窗口侧校验
+
+    // 每场战斗重置统计（与 startBattle/startPvpBattle 保持一致）
+    for (auto& up : m_units)
+        if (up) up->resetBattleStats();
 
     // 防御性再校验：字段范围 + 总量上限（不信任跨窗口数据）
     const auto specs = m_customBattleWindow->specs();
@@ -1023,6 +1031,15 @@ void Synera::endLevel(bool playerWon)
             if (m_endlessWave > loadBestEndlessWave())
                 saveBestEndlessWave(m_endlessWave);
         }
+        // 结算观测日志（追加式：回归验证结算恰好发生一次）
+        QFile ef(QString::fromUtf8("endless_settle.txt"));
+        if (ef.open(QIODevice::Append | QIODevice::Text)) {
+            ef.write(QString("wave=%1 gold=%2 won=%3 pending=%4\n")
+                         .arg(m_endlessWave).arg(m_gold).arg(playerWon ? 1 : 0).arg(m_pendingGold).toUtf8());
+            ef.close();
+        }
+
+        initLevel();   // 回准备阶段（缺失会导致 checkLevelEnd 每帧重复结算）
         return;
     }
 
@@ -2266,22 +2283,25 @@ void Synera::renderRecruitment(QPainter& painter)
     painter.setFont(synthBtnFont);
     painter.drawText(synthBtnRect, Qt::AlignCenter, QString::fromUtf8("\350\243\205\345\244\207\345\220\210\346\210\220\346\240\221")); // 装备合成树
 
-    // 自定义难度按钮（装备合成树按钮下方）
-    int customBtnY = synthBtnRect.bottom() + 8;
-    QRect customBtnRect(LEFT_PANEL_X, customBtnY, LEFT_PANEL_W, 22);
-    m_customButtonRect = customBtnRect;
+    // 自定义难度按钮（仅自定义模式显示；其它模式矩形置空，羁绊面板锚点自动上移）
+    m_customButtonRect = QRect();
+    if (m_gameMode == GameMode::Custom) {
+        int customBtnY = synthBtnRect.bottom() + 8;
+        QRect customBtnRect(LEFT_PANEL_X, customBtnY, LEFT_PANEL_W, 22);
+        m_customButtonRect = customBtnRect;
 
-    bool canCustom = (m_phase == GamePhase::Preparation && !m_gameOver);
-    painter.setBrush(canCustom ? QColor(70, 45, 80) : QColor(50, 50, 58));
-    painter.setPen(QPen(canCustom ? QColor(190, 110, 230) : QColor(90, 90, 95), 1));
-    painter.drawRoundedRect(customBtnRect, 4, 4);
+        bool canCustom = (m_phase == GamePhase::Preparation && !m_gameOver);
+        painter.setBrush(canCustom ? QColor(70, 45, 80) : QColor(50, 50, 58));
+        painter.setPen(QPen(canCustom ? QColor(190, 110, 230) : QColor(90, 90, 95), 1));
+        painter.drawRoundedRect(customBtnRect, 4, 4);
 
-    painter.setPen(canCustom ? QColor(220, 170, 250) : QColor(140, 140, 145));
-    QFont customBtnFont;
-    customBtnFont.setPixelSize(9);
-    customBtnFont.setBold(true);
-    painter.setFont(customBtnFont);
-    painter.drawText(customBtnRect, Qt::AlignCenter, QString::fromUtf8("自定义难度"));
+        painter.setPen(canCustom ? QColor(220, 170, 250) : QColor(140, 140, 145));
+        QFont customBtnFont;
+        customBtnFont.setPixelSize(9);
+        customBtnFont.setBold(true);
+        painter.setFont(customBtnFont);
+        painter.drawText(customBtnRect, Qt::AlignCenter, QString::fromUtf8("自定义难度"));
+    }
 
 }
 
