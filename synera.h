@@ -261,11 +261,11 @@ private:
     std::vector<HealEffect> m_healEffects;
     std::vector<GhostEffect> m_ghostEffects;
 
-    static constexpr int SLASH_EFFECT_FRAMES = 14;   // 战士普攻斩击持续帧数
-    static constexpr int SKILL_SLASH_FRAMES = 20;    // 战士技能重斩持续帧数
-    static constexpr int ASSASSIN_SLASH_FRAMES = 10; // 刺客快速斩击持续帧数
-    static constexpr int HEAL_EFFECT_FRAMES = 30;    // 治疗 "+" 粒子持续帧数
-    static constexpr int GHOST_EFFECT_FRAMES = 18;   // 刺客瞬移残影持续帧数
+    static constexpr int SLASH_EFFECT_FRAMES = 22;   // 战士普攻斩击持续帧数
+    static constexpr int SKILL_SLASH_FRAMES = 30;    // 战士技能重斩持续帧数
+    static constexpr int ASSASSIN_SLASH_FRAMES = 16; // 刺客快速斩击持续帧数
+    static constexpr int HEAL_EFFECT_FRAMES = 38;    // 治疗 "+" 粒子持续帧数
+    static constexpr int GHOST_EFFECT_FRAMES = 26;   // 刺客瞬移残影持续帧数
 
     // 伤害/治疗累积显示
     std::map<Unit*, std::vector<int>> m_pendingDamageEvents;

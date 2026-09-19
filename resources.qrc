@@ -1,18 +1,18 @@
 <RCC>
     <qresource prefix="/equip">
-        <!-- 基础装备 -->
-        <file>src/unit/upg_dagger.png</file>
-        <file>src/unit/armor.png</file>
-        <file>src/unit/speed_gloves.png</file>
-        <file>src/unit/upg_wand.png</file>
-        <file>src/unit/warhorse.png</file>
+        <!-- 基础装备（alias 拍平虚拟路径：:/equip/<alias>，避免 src/unit/ 目录层级进入 URL） -->
+        <file alias="upg_dagger.png">src/unit/upg_dagger.png</file>
+        <file alias="armor.png">src/unit/armor.png</file>
+        <file alias="speed_gloves.png">src/unit/speed_gloves.png</file>
+        <file alias="upg_wand.png">src/unit/upg_wand.png</file>
+        <file alias="warhorse.png">src/unit/warhorse.png</file>
         <!-- 高级装备 -->
-        <file>src/unit/upg_sword.png</file>
-        <file>src/unit/swift_blade.png</file>
-        <file>src/unit/thorns_armor.png</file>
-        <file>src/unit/vitality_armor.png</file>
-        <file>src/unit/gale_gloves.png</file>
-        <file>src/unit/revive_stone.png</file>
-        <file>src/unit/bow.png</file>
+        <file alias="upg_sword.png">src/unit/upg_sword.png</file>
+        <file alias="swift_blade.png">src/unit/swift_blade.png</file>
+        <file alias="thorns_armor.png">src/unit/thorns_armor.png</file>
+        <file alias="vitality_armor.png">src/unit/vitality_armor.png</file>
+        <file alias="gale_gloves.png">src/unit/gale_gloves.png</file>
+        <file alias="revive_stone.png">src/unit/revive_stone.png</file>
+        <file alias="bow.png">src/unit/bow.png</file>
     </qresource>
 </RCC>

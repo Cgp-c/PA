@@ -17,6 +17,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFile>
+#include <QDir>
 #include <QCoreApplication>
 #include <cstdlib>
 #include <cmath>
@@ -44,7 +45,7 @@ Synera::Synera(QWidget *parent)
 
     m_gameTimer = new QTimer(this);
     connect(m_gameTimer, &QTimer::timeout, this, &Synera::gameLoop);
-    m_gameTimer->start(16);
+    m_gameTimer->start(20);   // 20ms/帧：放慢整体节奏，让攻击特效可见
     m_frameClock.start();
 
     // 自动化验证钩子：SYNERA_SHOW_CUSTOM=1 时启动即打开自定义难度窗口
@@ -186,6 +187,13 @@ void Synera::initGame()
         // 回收槽也放两个演示英雄（备战区立绘验证）
         m_recycleSlots[0] = createUnitFromPool(UnitType::Mage, true, 4);
         m_recycleSlots[1] = createUnitFromPool(UnitType::Warrior, true, 2);
+        // 装备图标验证：场上英雄装两件 + 掉落区一件
+        if (Unit* w = m_board.getUnitAt(1, 6)) w->equip(Weapon::create("Iron Sword"));
+        if (Unit* w2 = m_board.getUnitAt(3, 6)) w2->equip(Weapon::create("Chain Mail"));
+        m_equipDrops.push_back(Weapon::create("Warhorse"));
+        // SYNERA_DEMO_BATTLE=1：摆完阵容直接开战（战斗特效验证）
+        if (qEnvironmentVariableIsSet("SYNERA_DEMO_BATTLE"))
+            startBattle();
     }
 }
 
@@ -2984,7 +2992,7 @@ void Synera::processCombatFrame()
                         m_projectileEffects.push_back({
                             pos.x, pos.y, tp.x, tp.y,
                             m_frameCounter,
-                            8 + 3 * manhattanDist(pos, tp)   // 距离越远飞得越久
+                            18 + 6 * manhattanDist(pos, tp)  // 距离越远飞得越久
                         });
                     }
 
