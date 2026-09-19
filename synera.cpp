@@ -40,21 +40,8 @@ Synera::Synera(QWidget *parent)
     resize(880, 720);
     setMouseTracking(true);
 
-    // 加载 Boss 立绘（src/unit/World01_004_WailingPrince.png）。
-    // 工作目录可能是项目根、build 目录或 exe 所在目录，依次回退尝试。
-    {
-        const QString img = "World01_004_WailingPrince.png";
-        const QString sub = "src/unit/" + img;
-        const QStringList candidates = {
-            sub,
-            "../" + sub,
-            QCoreApplication::applicationDirPath() + "/" + sub,
-            QCoreApplication::applicationDirPath() + "/../" + sub,
-        };
-        for (const QString& p : candidates) {
-            if (m_bossPixmap.load(p)) break;
-        }
-    }
+    // 加载各职业立绘（src/unit/*.png，见 loadUnitPortraits 的映射表）
+    loadUnitPortraits();
 
     initGame();
 
@@ -97,6 +84,41 @@ void Synera::showCustomBattleWindow()
     m_customBattleWindow->show();
     m_customBattleWindow->raise();
     m_customBattleWindow->activateWindow();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 职业立绘加载
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::loadUnitPortraits()
+{
+    // 职业立绘映射（奇幻系列，与 Boss 的 WailingPrince 同套素材）：
+    //   战士=Pirate(持械近战)  法师=Witch(施法者)
+    //   辅助=GreenGoo(治疗绿)  刺客=Bird(敏捷)  Boss=WailingPrince
+    static const char* portraitFiles[] = {
+        "World01_007_Pirate.png",        // Warrior
+        "World01_006_Witch.png",         // Mage
+        "World01_001_GreenGoo.png",      // Support
+        "World01_003_Bird.png",          // Assassin
+        "World01_004_WailingPrince.png", // Boss
+    };
+    static_assert(sizeof(portraitFiles) / sizeof(portraitFiles[0])
+                  == static_cast<int>(UnitType::Boss) + 1, "portrait table size");
+
+    // 工作目录可能是项目根、build 目录或 exe 所在目录，依次回退尝试
+    const QStringList roots = {
+        QString("src/unit/"),
+        QString("../src/unit/"),
+        QCoreApplication::applicationDirPath() + "/src/unit/",
+        QCoreApplication::applicationDirPath() + "/../src/unit/",
+    };
+    for (int i = 0; i <= static_cast<int>(UnitType::Boss); ++i) {
+        QPixmap& pm = m_unitPortraits[i];
+        pm = QPixmap();
+        for (const QString& root : roots) {
+            if (pm.load(root + portraitFiles[i])) break;
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -186,6 +208,20 @@ void Synera::initGame()
 
     // 初始化装备掉落
     m_equipDrops.clear();
+
+    // 自动化验证钩子：SYNERA_DEMO_UNITS=1 时在棋盘摆出全职业演示阵容
+    if (qEnvironmentVariableIsSet("SYNERA_DEMO_UNITS")) {
+        const UnitType types[] = {UnitType::Warrior, UnitType::Mage,
+                                  UnitType::Support, UnitType::Assassin};
+        for (int i = 0; i < 4; ++i) {
+            Unit* h = createUnitFromPool(types[i], true);
+            m_board.placeUnit(h, 1 + i * 2, 6);
+            Unit* e = createUnitFromPool(types[i], false);
+            m_board.placeUnit(e, 1 + i * 2, 1);
+        }
+        Unit* boss = createUnitFromPool(UnitType::Boss, false, 0, true);
+        m_board.placeUnit(boss, 4, 0);
+    }
 }
 
 void Synera::initLevel()
@@ -1034,15 +1070,16 @@ void Synera::renderUnits(QPainter& painter)
             QColor fill = typeFillColor(t, isHero);
             QColor border = isHero ? QColor(100, 170, 255) : QColor(235, 90, 90);
 
-            bool bossWithImage = (t == UnitType::Boss) && !m_bossPixmap.isNull();
-            if (bossWithImage) {
-                // Boss：暗色底框 + 金边 + 立绘贴图（名字/血条/蓝条仍在上方绘制）
+            const QPixmap& portrait = m_unitPortraits[static_cast<int>(t)];
+            if (!portrait.isNull()) {
+                // 立绘渲染：暗色底框 + 阵营描边（英雄蓝/敌方红/Boss 金加粗）
+                QColor frame = (t == UnitType::Boss) ? QColor(255, 200, 60) : border;
                 painter.setBrush(QColor(22, 14, 26));
-                painter.setPen(QPen(QColor(255, 200, 60), 2));
+                painter.setPen(QPen(frame, t == UnitType::Boss ? 2 : 1));
                 painter.drawRoundedRect(ur, 6, 6);
                 painter.save();
                 painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-                painter.drawPixmap(ur.adjusted(2, 2, -2, -2), m_bossPixmap);
+                painter.drawPixmap(ur.adjusted(2, 2, -2, -2), portrait);
                 painter.restore();
             } else {
                 painter.setBrush(fill);
@@ -2010,16 +2047,29 @@ void Synera::renderDragGhost(QPainter& painter)
 
         bool isHero = isHeroSide(m_draggedUnit);
         UnitType t = m_draggedUnit->getType();
-        painter.setBrush(typeFillColor(t, isHero));
-        painter.setPen(QPen(QColor(255, 255, 100), 2));
-        painter.drawRoundedRect(unitRect, 8, 8);
+        const QPixmap& portrait = m_unitPortraits[static_cast<int>(t)];
+        if (!portrait.isNull()) {
+            // 立绘幽灵：暗色底框 + 黄边 + 贴图（保持整体 0.75 透明度）
+            painter.setBrush(QColor(22, 14, 26));
+            painter.setPen(QPen(QColor(255, 255, 100), 2));
+            painter.drawRoundedRect(unitRect, 8, 8);
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            painter.drawPixmap(unitRect.adjusted(3, 3, -3, -3), portrait);
+        } else {
+            painter.setBrush(typeFillColor(t, isHero));
+            painter.setPen(QPen(QColor(255, 255, 100), 2));
+            painter.drawRoundedRect(unitRect, 8, 8);
+        }
 
-        painter.setPen(Qt::white);
-        QFont f;
-        f.setPixelSize(18);
-        f.setBold(true);
-        painter.setFont(f);
-        painter.drawText(unitRect, Qt::AlignCenter, typeLabel(t));
+        if (portrait.isNull()) {
+            // 无立绘时才画单字职业标签，避免盖在贴图上
+            painter.setPen(Qt::white);
+            QFont f;
+            f.setPixelSize(18);
+            f.setBold(true);
+            painter.setFont(f);
+            painter.drawText(unitRect, Qt::AlignCenter, typeLabel(t));
+        }
 
         painter.restore();
     }
