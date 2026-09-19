@@ -7,6 +7,7 @@
 #include "equipicons.h"
 #include <QPainter>
 #include <QPainterPath>
+#include <QRadialGradient>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QFont>
@@ -14,6 +15,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFile>
+#include <QCoreApplication>
 #include <cstdlib>
 #include <cmath>
 #include <algorithm>
@@ -36,7 +38,22 @@ Synera::Synera(QWidget *parent)
     resize(880, 720);
     setMouseTracking(true);
 
-    // 游戏状态全部由 initGame() 统一初始化，构造列表不再重复赋值
+    // 加载 Boss 立绘（src/unit/World01_004_WailingPrince.png）。
+    // 工作目录可能是项目根、build 目录或 exe 所在目录，依次回退尝试。
+    {
+        const QString img = "World01_004_WailingPrince.png";
+        const QString sub = "src/unit/" + img;
+        const QStringList candidates = {
+            sub,
+            "../" + sub,
+            QCoreApplication::applicationDirPath() + "/" + sub,
+            QCoreApplication::applicationDirPath() + "/../" + sub,
+        };
+        for (const QString& p : candidates) {
+            if (m_bossPixmap.load(p)) break;
+        }
+    }
+
     initGame();
 
     m_gameTimer = new QTimer(this);
@@ -86,6 +103,10 @@ void Synera::initGame()
     m_pendingGold = 0;
     m_populationCap = 4;
     m_hitEffects.clear();
+    m_slashEffects.clear();
+    m_projectileEffects.clear();
+    m_healEffects.clear();
+    m_ghostEffects.clear();
     m_pendingDamageEvents.clear();
 
     // 初始化英雄信息面板：4 种类型
@@ -120,7 +141,7 @@ void Synera::initLevel()
     m_frameCounter = 0;
     m_burnTickCount = 0;
     m_pendingGold = 0;
-    // 特效已在 endLevel() 开头清空，这里无需重复清理
+    // 特效已在 endLevel()/initGame() 开头清空，这里无需重复清理
 
     refreshRecruitment();
 
@@ -427,6 +448,10 @@ void Synera::endLevel(bool playerWon)
 {
     // 清空战斗中的伤害/治疗显示残留
     m_hitEffects.clear();
+    m_slashEffects.clear();
+    m_projectileEffects.clear();
+    m_healEffects.clear();
+    m_ghostEffects.clear();
     m_pendingDamageEvents.clear();
 
     // 清理所有刺客分身并重置羁绊效果
@@ -745,6 +770,10 @@ void Synera::paintEvent(QPaintEvent *event)
     renderBoard(painter);
     renderRecycleSlots(painter);
     renderUnits(painter);
+    renderSlashEffects(painter);
+    renderProjectiles(painter);
+    renderHealEffects(painter);
+    renderGhostEffects(painter);
     renderHeroInfo(painter);
     renderRecruitment(painter);
     renderEquipDrops(painter);
@@ -933,17 +962,29 @@ void Synera::renderUnits(QPainter& painter)
             QColor fill = typeFillColor(t, isHero);
             QColor border = isHero ? QColor(100, 170, 255) : QColor(235, 90, 90);
 
-            painter.setBrush(fill);
-            painter.setPen(QPen(border, 1));
-            painter.drawRoundedRect(ur, 6, 6);
+            bool bossWithImage = (t == UnitType::Boss) && !m_bossPixmap.isNull();
+            if (bossWithImage) {
+                // Boss：暗色底框 + 金边 + 立绘贴图（名字/血条/蓝条仍在上方绘制）
+                painter.setBrush(QColor(22, 14, 26));
+                painter.setPen(QPen(QColor(255, 200, 60), 2));
+                painter.drawRoundedRect(ur, 6, 6);
+                painter.save();
+                painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+                painter.drawPixmap(ur.adjusted(2, 2, -2, -2), m_bossPixmap);
+                painter.restore();
+            } else {
+                painter.setBrush(fill);
+                painter.setPen(QPen(border, 1));
+                painter.drawRoundedRect(ur, 6, 6);
 
-            // 角色标签
-            painter.setPen(Qt::white);
-            QFont typeFont;
-            typeFont.setPixelSize(20);
-            typeFont.setBold(true);
-            painter.setFont(typeFont);
-            painter.drawText(ur, Qt::AlignCenter, typeLabel(t));
+                // 角色标签
+                painter.setPen(Qt::white);
+                QFont typeFont;
+                typeFont.setPixelSize(20);
+                typeFont.setBold(true);
+                painter.setFont(typeFont);
+                painter.drawText(ur, Qt::AlignCenter, typeLabel(t));
+            }
 
             // 名字（顶部）
             QFont nameFont;
@@ -1035,6 +1076,30 @@ void Synera::renderUnits(QPainter& painter)
                 }
             }
 
+            // 燃烧特效：身上持续冒红色小火苗/泡泡（循环上浮淡出）
+            if (unit->isBurning()) {
+                painter.save();
+                unsigned seed = (unsigned)(x * 73856093u) ^ (unsigned)(y * 19349663u);
+                for (int i = 0; i < 3; ++i) {
+                    seed = seed * 1664525u + 1013904223u;
+                    int wob = (int)((seed >> 12) % 9) - 4;            // 水平摆动
+                    double phase = ((m_frameCounter + i * 8 + ((seed >> 6) % 24)) % 24) / 24.0;
+                    double fx = ur.center().x() + (i - 1) * 9 + wob * (0.3 + phase);
+                    double fy = ur.bottom() - 6 - phase * (ur.height() * 0.55);
+                    double fr = 2.6 + 1.6 * std::sin(phase * 3.14159);
+                    int a = (int)(200 * std::sin(phase * 3.14159));   // 上升过程先亮后暗
+                    if (a <= 0) continue;
+                    QRadialGradient fg(QPointF(fx, fy), fr + 1.5);
+                    fg.setColorAt(0.0, QColor(255, 230, 120, a));
+                    fg.setColorAt(0.55, QColor(255, 100, 40, a));
+                    fg.setColorAt(1.0, QColor(200, 30, 20, 0));
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(fg);
+                    painter.drawEllipse(QPointF(fx, fy), fr + 1.5, fr + 1.5);
+                }
+                painter.restore();
+            }
+
             // 伤害/治疗浮动文本（右上角）
             int hitOffsetY = 0;
             for (auto& he : m_hitEffects) {
@@ -1053,6 +1118,306 @@ void Synera::renderUnits(QPainter& painter)
                 hitOffsetY += 14;
             }
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 战士/刺客击打特效（攻击者与目标之间：刀光弧 + 命中闪光 + 火花）
+// kind: 0=战士普攻 1=战士技能重斩(双弧更大更亮) 2=刺客快速斩击
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderSlashEffects(QPainter& painter)
+{
+    const double PI = 3.14159265358979323846;
+
+    for (const SlashEffect& e : m_slashEffects) {
+        int elapsed = m_frameCounter - e.startFrame;
+        if (elapsed < 0 || e.duration <= 0) continue;
+        double progress = (double)elapsed / e.duration;
+        if (progress >= 1.0) continue;
+
+        QPointF from = cellRect(e.fromX, e.fromY).center();
+        QPointF to   = cellRect(e.cellX, e.cellY).center();
+        QPointF mid((from.x() + to.x()) / 2.0, (from.y() + to.y()) / 2.0);
+
+        double angle = std::atan2(to.y() - from.y(), to.x() - from.x());
+        double alpha = 1.0 - progress;
+
+        // 按类型调整视觉强度
+        double radiusScale = 0.62;
+        double glowW = 6, coreW = 2;
+        int sparkCount = 5;
+        QColor glowColor(255, 160, 40);
+        QColor coreColor(255, 255, 255);
+        bool doubleArc = false;
+        if (e.kind == 1) {          // 战士技能重斩：更大更亮
+            radiusScale = 0.88;
+            glowW = 10; coreW = 4;
+            sparkCount = 8;
+            glowColor = QColor(255, 210, 60);
+            doubleArc = true;
+        } else if (e.kind == 2) {   // 刺客快速斩击：更短促锋锐
+            radiusScale = 0.50;
+            glowW = 4; coreW = 2;
+            sparkCount = 3;
+            glowColor = QColor(255, 230, 120);
+        }
+
+        // 命中点：目标中心向攻击者方向回退 25%，特效打在两格交界处
+        QPointF hit(to.x() - std::cos(angle) * CELL_SIZE * 0.25,
+                    to.y() - std::sin(angle) * CELL_SIZE * 0.25);
+
+        painter.save();
+
+        // ── 刀光弧：横跨两个战士之间，随帧展开并淡出 ──
+        {
+            double radius = CELL_SIZE * radiusScale;
+            double sweep  = 0.35 + 0.85 * progress;              // 挥砍展开角
+            double side   = (e.startFrame % 2 == 0) ? 1.0 : -1.0; // 交替挥砍方向
+            double base   = angle + PI / 2.0 * side;
+
+            auto drawOneArc = [&](double centerAngle) {
+                double a0 = centerAngle - sweep * side;
+                double a1 = centerAngle + sweep * side;
+                QPainterPath arc;
+                arc.moveTo(mid.x() + radius * std::cos(a0), mid.y() + radius * std::sin(a0));
+                arc.quadTo(mid.x(), mid.y(),
+                           mid.x() + radius * std::cos(a1), mid.y() + radius * std::sin(a1));
+                painter.setPen(QPen(QColor(glowColor.red(), glowColor.green(), glowColor.blue(),
+                                           (int)(160 * alpha)), glowW));
+                painter.drawPath(arc);
+                painter.setPen(QPen(QColor(coreColor.red(), coreColor.green(), coreColor.blue(),
+                                           (int)(230 * alpha)), coreW));
+                painter.drawPath(arc);
+            };
+
+            drawOneArc(base);
+            if (doubleArc) drawOneArc(base + PI);   // 技能重斩：对侧再来一道，成交叉斩
+        }
+
+        // ── 命中闪光 ──
+        {
+            double flashScale = (e.kind == 1) ? 1.6 : 1.0;
+            double r = (3.0 + 7.0 * progress) * flashScale;
+            QRadialGradient grad(hit, r);
+            grad.setColorAt(0.0, QColor(255, 255, 220, (int)(220 * alpha)));
+            grad.setColorAt(1.0, QColor(255, 200, 80, 0));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(grad);
+            painter.drawEllipse(hit, r, r);
+        }
+
+        // ── 火花放射线：从命中点沿攻击反方向扇形溅射 ──
+        {
+            unsigned seed = (unsigned)(e.cellX * 73856093u)
+                          ^ (unsigned)(e.cellY * 19349663u)
+                          ^ (unsigned)(e.startFrame * 83492791u);
+            for (int i = 0; i < sparkCount; ++i) {
+                seed = seed * 1664525u + 1013904223u;
+                double jitter = ((seed >> 16) % 1000) / 1000.0 - 0.5;
+                double theta = angle + PI + jitter * 2.4;
+
+                double startDist = 4.0 + 15.0 * progress;
+                double len = 5.0 + 9.0 * progress;
+                QPointF sp(hit.x() + std::cos(theta) * startDist,
+                           hit.y() + std::sin(theta) * startDist);
+                QPointF ep(sp.x() + std::cos(theta) * len,
+                           sp.y() + std::sin(theta) * len);
+
+                painter.setPen(QPen(QColor(255, 255 - (int)(140 * progress), 60,
+                                           (int)(220 * alpha)), 2));
+                painter.drawLine(sp, ep);
+            }
+        }
+
+        // ── 技能重斩追加：命中点冲击环 ──
+        if (e.kind == 1) {
+            double r = CELL_SIZE * (0.25 + 0.55 * progress);
+            painter.setPen(QPen(QColor(255, 230, 120, (int)(180 * alpha)), 3));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(hit, r, r * 0.6);
+        }
+
+        painter.restore();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 法师火球弹道特效（抛物线飞行的小火球 + 命中爆裂）
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderProjectiles(QPainter& painter)
+{
+    const double FLIGHT_END = 0.78;   // 前 78% 帧飞行，之后爆裂
+
+    for (const ProjectileEffect& e : m_projectileEffects) {
+        int elapsed = m_frameCounter - e.startFrame;
+        if (elapsed < 0 || e.duration <= 0) continue;
+        double progress = (double)elapsed / e.duration;
+        if (progress >= 1.0) continue;
+
+        QPointF from = cellRect(e.fromX, e.fromY).center();
+        QPointF to   = cellRect(e.toX, e.toY).center();
+
+        painter.save();
+
+        if (progress < FLIGHT_END) {
+            // ── 飞行段：沿弧线（略微上抛）飞向目标 ──
+            double t = progress / FLIGHT_END;
+            QPointF mid((from.x() + to.x()) / 2.0, (from.y() + to.y()) / 2.0);
+            QPointF ctrl(mid.x(), mid.y() - 14.0);   // 控制点上抬，形成小弧线
+
+            // 二次贝塞尔求当前位置
+            double u = 1.0 - t;
+            QPointF pos(u * u * from.x() + 2 * u * t * ctrl.x() + t * t * to.x(),
+                        u * u * from.y() + 2 * u * t * ctrl.y() + t * t * to.y());
+
+            // 尾迹：沿轨迹回退的 3 个渐隐火点
+            for (int i = 1; i <= 3; ++i) {
+                double tt = t - i * 0.07;
+                if (tt < 0.0) continue;
+                double uu = 1.0 - tt;
+                QPointF tp(uu * uu * from.x() + 2 * uu * tt * ctrl.x() + tt * tt * to.x(),
+                           uu * uu * from.y() + 2 * uu * tt * ctrl.y() + tt * tt * to.y());
+                int tr = 4 - i;
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(255, 120, 40, 120 - i * 35));
+                painter.drawEllipse(tp, tr, tr);
+            }
+
+            // 火球本体：外焰红 + 内核亮黄白
+            QRadialGradient grad(pos, 6.0);
+            grad.setColorAt(0.0, QColor(255, 255, 200, 255));
+            grad.setColorAt(0.45, QColor(255, 200, 60, 235));
+            grad.setColorAt(1.0, QColor(255, 90, 20, 120));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(grad);
+            painter.drawEllipse(pos, 6.0, 6.0);
+        } else {
+            // ── 爆裂段：目标处橙色冲击环 + 碎火星 ──
+            double t = (progress - FLIGHT_END) / (1.0 - FLIGHT_END);
+            double alpha = 1.0 - t;
+
+            painter.setPen(QPen(QColor(255, 170, 50, (int)(200 * alpha)), 3));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(to, 4.0 + 12.0 * t, 4.0 + 12.0 * t);
+
+            unsigned seed = (unsigned)(e.toX * 73856093u) ^ (unsigned)(e.toY * 19349663u)
+                          ^ (unsigned)(e.startFrame * 83492791u);
+            for (int i = 0; i < 5; ++i) {
+                seed = seed * 1664525u + 1013904223u;
+                double theta = ((seed >> 8) % 628) / 100.0;   // 0~6.28
+                double dist = 6.0 + 14.0 * t;
+                painter.setPen(QPen(QColor(255, 200 - (int)(100 * t), 60,
+                                           (int)(220 * alpha)), 2));
+                painter.drawLine(QPointF(to.x() + std::cos(theta) * dist,
+                                         to.y() + std::sin(theta) * dist),
+                                 QPointF(to.x() + std::cos(theta) * (dist + 5.0),
+                                         to.y() + std::sin(theta) * (dist + 5.0)));
+            }
+        }
+
+        painter.restore();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 辅助治疗特效（大 "+" 上浮 + 环绕小 "+" 粒子）
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderHealEffects(QPainter& painter)
+{
+    for (const HealEffect& e : m_healEffects) {
+        int elapsed = m_frameCounter - e.startFrame;
+        if (elapsed < 0 || e.duration <= 0) continue;
+        double progress = (double)elapsed / e.duration;
+        if (progress >= 1.0) continue;
+
+        QRect rc = cellRect(e.cellX, e.cellY);
+        double alpha = 1.0 - progress;
+        double rise = 10.0 * progress;   // 整体上浮
+
+        painter.save();
+        QFont bigFont;
+        bigFont.setPixelSize(e.isSkill ? 22 : 14);
+        bigFont.setBold(true);
+        QFont smallFont;
+        smallFont.setPixelSize(e.isSkill ? 11 : 8);
+        smallFont.setBold(true);
+
+        // 大 "+"：单位中上方，随时间上浮淡出
+        painter.setFont(bigFont);
+        painter.setPen(QColor(90, 255, 110, (int)(235 * alpha)));
+        QRect bigRect(rc.left(), rc.top() - 18 - (int)rise, rc.width(), 22);
+        painter.drawText(bigRect, Qt::AlignHCenter | Qt::AlignVCenter, QString("+"));
+
+        // 2~3 个小 "+"：围绕大 "+" 向四周飘散
+        unsigned seed = (unsigned)(e.cellX * 19349663u) ^ (unsigned)(e.cellY * 73856093u)
+                      ^ (unsigned)(e.startFrame * 83492791u);
+        int smallCount = e.isSkill ? 3 : 2;
+        painter.setFont(smallFont);
+        for (int i = 0; i < smallCount; ++i) {
+            seed = seed * 1664525u + 1013904223u;
+            double theta = ((seed >> 8) % 628) / 100.0;   // 0~6.28
+            double dist = 8.0 + 16.0 * progress;
+            int sx = (int)(rc.center().x() + std::cos(theta) * dist);
+            int sy = (int)(rc.center().y() + std::sin(theta) * dist * 0.6 - rise);
+            painter.setPen(QColor(120, 255, 140, (int)(200 * alpha)));
+            painter.drawText(QRect(sx - 6, sy - 6, 12, 12),
+                             Qt::AlignCenter, QString("+"));
+        }
+
+        painter.restore();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 刺客瞬移残影特效（高透明度幻影沿瞬移路径排布并淡出）
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderGhostEffects(QPainter& painter)
+{
+    const double GHOST_MAX_ALPHA = 0.32;   // 高透明度（约 1/3 不透明度）
+
+    for (const GhostEffect& e : m_ghostEffects) {
+        int elapsed = m_frameCounter - e.startFrame;
+        if (elapsed < 0 || e.duration <= 0) continue;
+        double progress = (double)elapsed / e.duration;
+        if (progress >= 1.0) continue;
+
+        QPointF from = cellRect(e.fromX, e.fromY).center();
+        QPointF to   = cellRect(e.toX, e.toY).center();
+
+        QColor fill = typeFillColor(static_cast<UnitType>(e.type), e.isHero);
+        QColor border = e.isHero ? QColor(100, 170, 255) : QColor(235, 90, 90);
+
+        painter.save();
+
+        // 3 个幻影位于路径 25% / 50% / 75% 处，随时间整体淡出
+        const double fractions[3] = {0.25, 0.5, 0.75};
+        for (int i = 0; i < 3; ++i) {
+            double fx = from.x() + (to.x() - from.x()) * fractions[i];
+            double fy = from.y() + (to.y() - from.y()) * fractions[i];
+
+            // 越靠后的残影越淡
+            double localAlpha = GHOST_MAX_ALPHA * (1.0 - progress) * (1.0 - 0.25 * i);
+            int m = 8;
+            QRect gr((int)fx - CELL_SIZE / 2 + m, (int)fy - CELL_SIZE / 2 + m,
+                     CELL_SIZE - 2 * m, CELL_SIZE - 2 * m);
+
+            painter.setOpacity(localAlpha);
+            painter.setBrush(fill);
+            painter.setPen(QPen(border, 1));
+            painter.drawRoundedRect(gr, 6, 6);
+        }
+
+        // 瞬移轨迹虚线
+        painter.setOpacity(GHOST_MAX_ALPHA * 0.8 * (1.0 - progress));
+        QPen dashPen(QColor(220, 200, 255), 1, Qt::DashLine);
+        painter.setPen(dashPen);
+        painter.drawLine(from, to);
+
+        painter.restore();
     }
 }
 
@@ -2301,8 +2666,19 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         castAndSettle(assassin, &Unit::useSkill, alive);
 
         // 仅当确实瞬移了（位置改变）才重置法力值，否则保留技能点
-        if (!(assassin->getPosition() == posBefore))
+        if (!(assassin->getPosition() == posBefore)) {
             assassin->resetMana();
+
+            // 瞬移残影特效：从起点到终点留下高透明度幻影轨迹
+            m_ghostEffects.push_back({
+                posBefore.x, posBefore.y,
+                assassin->getPosition().x, assassin->getPosition().y,
+                static_cast<int>(assassin->getType()),
+                isHero,
+                m_frameCounter,
+                GHOST_EFFECT_FRAMES
+            });
+        }
     }
 }
 
@@ -2313,6 +2689,22 @@ void Synera::processCombatFrame()
         std::remove_if(m_hitEffects.begin(), m_hitEffects.end(),
             [this](const HitEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
         m_hitEffects.end());
+    m_slashEffects.erase(
+        std::remove_if(m_slashEffects.begin(), m_slashEffects.end(),
+            [this](const SlashEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_slashEffects.end());
+    m_projectileEffects.erase(
+        std::remove_if(m_projectileEffects.begin(), m_projectileEffects.end(),
+            [this](const ProjectileEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_projectileEffects.end());
+    m_healEffects.erase(
+        std::remove_if(m_healEffects.begin(), m_healEffects.end(),
+            [this](const HealEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_healEffects.end());
+    m_ghostEffects.erase(
+        std::remove_if(m_ghostEffects.begin(), m_ghostEffects.end(),
+            [this](const GhostEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_ghostEffects.end());
 
     struct Move { Unit* unit; Position to; };
     std::vector<Move> moves;
@@ -2393,11 +2785,49 @@ void Synera::processCombatFrame()
             if (!hasValidTarget) {
                 // 无有效目标，保留技能点，继续移动/攻击
             } else {
+                // 技能视觉前摇数据：战士技能=重斩（攻击者→最近敌方）
+                Unit* skillSlashTarget = nullptr;
+                if (u->getType() == UnitType::Warrior)
+                    skillSlashTarget = findNearestEnemyFor(u);
+
+                // 辅助技能治疗特效判定用的 HP 快照
+                std::map<Unit*, int> hpBefore;
+                if (isSupport) {
+                    for (Unit* au : alive) {
+                        if (!au->isDead() && !au->isDisappeared())
+                            hpBefore[au] = au->getHp();
+                    }
+                }
+
                 castAndSettle(u, &Unit::useSkill, alive);
                 u->resetMana();
                 u->resetMoveTimer();
                 u->resetAttackTimer();
                 u->gainMana2(); // Boss 进阶技能充能（其他单位 maxMana2=0，空操作）
+
+                if (u->getType() == UnitType::Warrior && skillSlashTarget
+                    && !skillSlashTarget->isDisappeared()) {
+                    m_slashEffects.push_back({
+                        pos.x, pos.y,
+                        skillSlashTarget->getPosition().x,
+                        skillSlashTarget->getPosition().y,
+                        1, m_frameCounter, SKILL_SLASH_FRAMES
+                    });
+                }
+
+                // 辅助技能治疗目标 → 大 "+" 粒子群
+                for (auto& kv : hpBefore) {
+                    if (kv.first->isDead() || kv.first->isDisappeared()) continue;
+                    int diff = kv.first->getHp() - kv.second;
+                    if (diff > 0)
+                        m_healEffects.push_back({
+                            kv.first->getPosition().x,
+                            kv.first->getPosition().y,
+                            true,
+                            m_frameCounter,
+                            HEAL_EFFECT_FRAMES
+                        });
+                }
                 continue;
             }
         }
@@ -2410,6 +2840,16 @@ void Synera::processCombatFrame()
             // 治疗（独立计时器）
             if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                 int healed = healTarget->heal(u->getHealAmount());
+
+                // 治疗特效：被治疗者身上冒绿色 "+"
+                m_healEffects.push_back({
+                    healTarget->getPosition().x,
+                    healTarget->getPosition().y,
+                    false,
+                    m_frameCounter,
+                    HEAL_EFFECT_FRAMES
+                });
+
                 m_pendingDamageEvents[healTarget].push_back(healed);
                 u->gainMana();
                 shareManaToMages(u, alive);
@@ -2443,6 +2883,27 @@ void Synera::processCombatFrame()
                 // 攻击（独立计时器）
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                     int dealt = u->attack(*target);
+
+                    // 命中特效：战士=斩击，刺客=快速斩击，法师=火球飞行弹道
+                    Position tp = target->getPosition();
+                    if (u->getType() == UnitType::Warrior) {
+                        m_slashEffects.push_back({
+                            pos.x, pos.y, tp.x, tp.y,
+                            0, m_frameCounter, SLASH_EFFECT_FRAMES
+                        });
+                    } else if (u->getType() == UnitType::Assassin) {
+                        m_slashEffects.push_back({
+                            pos.x, pos.y, tp.x, tp.y,
+                            2, m_frameCounter, ASSASSIN_SLASH_FRAMES
+                        });
+                    } else if (u->getType() == UnitType::Mage) {
+                        m_projectileEffects.push_back({
+                            pos.x, pos.y, tp.x, tp.y,
+                            m_frameCounter,
+                            8 + 3 * manhattanDist(pos, tp)   // 距离越远飞得越久
+                        });
+                    }
+
                     u->gainMana();
                     u->gainMana2(); // Boss 进阶技能充能（其他单位空操作）
                     shareManaToMages(u, alive);

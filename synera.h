@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QPixmap>
 #include <vector>
 #include <map>
 #include <memory>
@@ -28,6 +29,37 @@ struct RecruitSlot {
 struct HitEffect {
     int cellX, cellY;
     int amount;          // negative=damage, positive=heal
+    int startFrame;
+    int duration;
+};
+
+struct SlashEffect {
+    int fromX, fromY;    // 攻击者所在格子
+    int cellX, cellY;    // 目标所在格子
+    int kind;            // 0=战士普攻斩击 1=战士技能重斩 2=刺客快速斩击
+    int startFrame;
+    int duration;
+};
+
+struct ProjectileEffect {          // 法师火球飞行弹道
+    int fromX, fromY;    // 发射者格子
+    int toX, toY;        // 目标格子
+    int startFrame;
+    int duration;
+};
+
+struct HealEffect {                // 辅助治疗 "+" 粒子
+    int cellX, cellY;
+    bool isSkill;        // true=技能大"+" + 小"+"群, false=普攻中"+"
+    int startFrame;
+    int duration;
+};
+
+struct GhostEffect {               // 刺客瞬移残影
+    int fromX, fromY;    // 瞬移起点格子
+    int toX, toY;        // 瞬移终点格子
+    int type;            // UnitType 枚举值
+    bool isHero;
     int startFrame;
     int duration;
 };
@@ -74,6 +106,10 @@ private:
     void renderRecycleSlots(QPainter& painter);
     void renderEquipDrops(QPainter& painter);
     void renderDragGhost(QPainter& painter);
+    void renderSlashEffects(QPainter& painter);
+    void renderProjectiles(QPainter& painter);
+    void renderHealEffects(QPainter& painter);
+    void renderGhostEffects(QPainter& painter);
     void renderUI(QPainter& painter);
     void renderBonds(QPainter& painter);
 
@@ -211,6 +247,18 @@ private:
 
     // 视觉特效
     std::vector<HitEffect> m_hitEffects;
+    std::vector<SlashEffect> m_slashEffects;
+    std::vector<ProjectileEffect> m_projectileEffects;
+    std::vector<HealEffect> m_healEffects;
+    std::vector<GhostEffect> m_ghostEffects;
+
+    // Boss 立绘贴图
+    QPixmap m_bossPixmap;
+    static constexpr int SLASH_EFFECT_FRAMES = 14;   // 战士普攻斩击持续帧数
+    static constexpr int SKILL_SLASH_FRAMES = 20;    // 战士技能重斩持续帧数
+    static constexpr int ASSASSIN_SLASH_FRAMES = 10; // 刺客快速斩击持续帧数
+    static constexpr int HEAL_EFFECT_FRAMES = 30;    // 治疗 "+" 粒子持续帧数
+    static constexpr int GHOST_EFFECT_FRAMES = 18;   // 刺客瞬移残影持续帧数
 
     // 伤害/治疗累积显示
     std::map<Unit*, std::vector<int>> m_pendingDamageEvents;
