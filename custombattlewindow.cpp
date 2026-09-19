@@ -158,16 +158,20 @@ void CustomBattleWindow::paintEvent(QPaintEvent* event)
 
         int bx = CBW_MARGIN;
 
-        // 类型按钮
+        // 类型按钮：立绘图块 + 名称
         QRect typeRect(bx, y, 92, CBW_ROW_H);
         m_typeRects.push_back(typeRect);
         bx += typeRect.width() + 8;
-        painter.setBrush(typeButtonColor(spec.type));
-        painter.setPen(QPen(QColor(240, 240, 240), 1));
+        painter.setBrush(QColor(22, 14, 26));
+        painter.setPen(QPen(typeButtonColor(spec.type), 2));
         painter.drawRoundedRect(typeRect, 5, 5);
+        QRect chipRect(typeRect.left() + 4, typeRect.top() + 3, CBW_ROW_H - 6, CBW_ROW_H - 6);
+        drawUnitChip(painter, chipRect, static_cast<UnitType>(spec.type), false, 4);
         painter.setFont(btnFont);
         painter.setPen(Qt::white);
-        painter.drawText(typeRect, Qt::AlignCenter, typeButtonText(spec.type));
+        painter.drawText(QRect(chipRect.right() + 4, typeRect.top(),
+                               typeRect.right() - chipRect.right() - 4, typeRect.height()),
+                         Qt::AlignCenter, typeButtonText(spec.type));
 
         // 星级按钮
         QRect starRect(bx, y, 76, CBW_ROW_H);

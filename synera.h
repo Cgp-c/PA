@@ -261,9 +261,6 @@ private:
     std::vector<HealEffect> m_healEffects;
     std::vector<GhostEffect> m_ghostEffects;
 
-    // 各职业立绘贴图（按 UnitType 索引，含 Boss；加载失败为空 → 回退色块渲染）
-    QPixmap m_unitPortraits[static_cast<int>(UnitType::Boss) + 1];
-    void loadUnitPortraits();
     static constexpr int SLASH_EFFECT_FRAMES = 14;   // 战士普攻斩击持续帧数
     static constexpr int SKILL_SLASH_FRAMES = 20;    // 战士技能重斩持续帧数
     static constexpr int ASSASSIN_SLASH_FRAMES = 10; // 刺客快速斩击持续帧数
