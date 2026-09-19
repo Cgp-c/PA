@@ -1479,6 +1479,7 @@ void Synera::paintEvent(QPaintEvent *event)
         painter.restore();
         drawPanelScrollbar(painter, vpRec, m_recruitScroll, m_recruitScrollMax);
     }
+    renderListHeaders(painter);   // 固定层列表头（Hero Info / Recruit + Refresh）
     renderLeftButtons(painter);   // 固定按钮区（不随列表滚动）
     renderBonds(painter);         // 固定羁绊区
 
@@ -1519,6 +1520,38 @@ void Synera::drawPanelScrollbar(QPainter& painter, const QRect& vp, int scroll, 
     painter.drawRect(QRect(vp.right() - 4, vp.top() + 2, 4, trackH));
     painter.setBrush(QColor(120, 120, 145));
     painter.drawRect(QRect(vp.right() - 4, thumbY, 4, thumbH));
+}
+
+// 固定层列表头：两个滚动列表的标题与刷新按钮（在视口裁剪区之外，不随滚动）
+void Synera::renderListHeaders(QPainter& painter)
+{
+    if (m_phase == GamePhase::Preparation) {
+        QFont titleFont;
+        titleFont.setPixelSize(11);
+        titleFont.setBold(true);
+        painter.setFont(titleFont);
+        painter.setPen(QColor(180, 180, 200));
+        painter.drawText(LEFT_PANEL_X, 54, "Hero Info");   // 信息视口（60 起）上方
+        painter.drawText(LEFT_PANEL_X, 282, "Recruit");    // 两个视口之间的固定带
+
+        // 刷新按钮（Recruit 标题右侧，固定坐标）
+        int refreshW = 56, refreshH = 16;
+        m_refreshButtonRect = QRect(LEFT_PANEL_X + LEFT_PANEL_W - refreshW, 268, refreshW, refreshH);
+        bool canRefresh = (m_gold >= 15);
+        painter.setBrush(canRefresh ? QColor(55, 110, 55) : QColor(55, 55, 55));
+        painter.setPen(QPen(canRefresh ? QColor(80, 180, 80) : QColor(90, 90, 90), 1));
+        painter.drawRoundedRect(m_refreshButtonRect, 3, 3);
+        painter.setPen(canRefresh ? Qt::white : QColor(150, 150, 150));
+        QFont rfFont;
+        rfFont.setPixelSize(8);
+        rfFont.setBold(true);
+        painter.setFont(rfFont);
+        painter.drawText(m_refreshButtonRect, Qt::AlignCenter, "Refresh $15");
+    } else {
+        m_refreshButtonRect = QRect();   // 战斗中无刷新按钮
+        m_recruitScrollMax = 0;
+        m_infoScrollMax = 0;
+    }
 }
 
 void Synera::wheelEvent(QWheelEvent *event)
@@ -2188,14 +2221,6 @@ void Synera::renderHeroInfo(QPainter& painter)
 {
     if (m_phase != GamePhase::Preparation) return;
 
-    // 标题
-    QFont titleFont;
-    titleFont.setPixelSize(11);
-    titleFont.setBold(true);
-    painter.setFont(titleFont);
-    painter.setPen(QColor(180, 180, 200));
-    painter.drawText(LEFT_PANEL_X, BOARD_OFFSET_Y - 12, "Hero Info");
-
     for (int i = 0; i < (int)m_shop.size(); ++i) {
         const PoolSlot& slot = m_shop[i];
         int rowY = INFO_PANEL_Y + i * (INFO_PANEL_H + INFO_SPACING);
@@ -2263,36 +2288,12 @@ void Synera::renderHeroInfo(QPainter& painter)
 
 void Synera::renderRecruitment(QPainter& painter)
 {
-    if (m_phase != GamePhase::Preparation) return;
+    if (m_phase != GamePhase::Preparation) {
+        m_recruitScrollMax = 0;   // 非准备阶段列表不滚动（避免滚不存在的列表）
+        return;
+    }
 
-    int titleY = RECRUIT_START_Y - 22;
-
-    // 标题
-    QFont titleFont;
-    titleFont.setPixelSize(11);
-    titleFont.setBold(true);
-    painter.setFont(titleFont);
-    painter.setPen(QColor(180, 180, 200));
-    painter.drawText(LEFT_PANEL_X, titleY, "Recruit");
-
-    // 刷新按钮（标题右侧）
-    int refreshW = 56, refreshH = 16;
-    QRect refreshRect(LEFT_PANEL_X + LEFT_PANEL_W - refreshW, titleY - 14, refreshW, refreshH);
-    m_refreshButtonRect = refreshRect;
-
-    bool canRefresh = (m_gold >= 15);
-    painter.setBrush(canRefresh ? QColor(55, 110, 55) : QColor(55, 55, 55));
-    painter.setPen(QPen(canRefresh ? QColor(80, 180, 80) : QColor(90, 90, 90), 1));
-    painter.drawRoundedRect(refreshRect, 3, 3);
-
-    painter.setPen(canRefresh ? Qt::white : QColor(150, 150, 150));
-    QFont rfFont;
-    rfFont.setPixelSize(8);
-    rfFont.setBold(true);
-    painter.setFont(rfFont);
-    painter.drawText(refreshRect, Qt::AlignCenter, "Refresh $15");
-
-    // 招募槽
+    // 招募槽（标题与刷新按钮在固定层渲染，见 renderListHeaders）
     m_recruitRects.clear();
     for (int i = 0; i < (int)m_recruitSlots.size(); ++i) {
         const RecruitSlot& slot = m_recruitSlots[i];
@@ -3051,9 +3052,10 @@ void Synera::mousePressEvent(QMouseEvent *event)
     if (m_gameOver) return;
     QPoint pos = event->pos();
 
-    // 招募列表内容按滚动平移绘制：命中检测补偿该列表的滚动量
+    // 命中补偿【仅限招募列表视口内】；标题/刷新/Pop+/合成树等固定元素用原始坐标
     const bool inRecruitList = pos.x() <= LEFT_PANEL_X + LEFT_PANEL_W + 6
-                               && pos.y() >= RECRUIT_VIEW_Y;
+                               && pos.y() >= RECRUIT_VIEW_Y
+                               && pos.y() < RECRUIT_VIEW_Y + RECRUIT_VIEW_H;
     const QPoint hitPos = inRecruitList ? QPoint(pos.x(), pos.y() + m_recruitScroll) : pos;
 
     if (m_phase == GamePhase::Preparation) {
@@ -3066,8 +3068,8 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 招募区刷新按钮
-        if (m_refreshButtonRect.contains(hitPos)) {
+        // 招募区刷新按钮（固定层坐标，无需滚动补偿）
+        if (m_refreshButtonRect.contains(pos)) {
             if (m_gold >= 15) {
                 m_gold -= 15;
                 refreshRecruitment();
@@ -3092,8 +3094,8 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 人口上限升级按钮
-        if (m_popUpgradeButtonRect.contains(hitPos)) {
+        // 人口上限升级按钮（固定层坐标）
+        if (m_popUpgradeButtonRect.contains(pos)) {
             int popCost = 100 * (m_populationCap - 4);
             if (m_gold >= popCost) {
                 m_gold -= popCost;
@@ -3102,14 +3104,14 @@ void Synera::mousePressEvent(QMouseEvent *event)
             return;
         }
 
-        // 装备合成树按钮
-        if (m_synthTreeButtonRect.contains(hitPos)) {
+        // 装备合成树按钮（固定层坐标）
+        if (m_synthTreeButtonRect.contains(pos)) {
             showEquipSynthWindow();
             return;
         }
 
-        // 自定义难度按钮
-        if (m_customButtonRect.contains(hitPos)) {
+        // 自定义难度按钮（固定层坐标）
+        if (m_customButtonRect.contains(pos)) {
             showCustomBattleWindow();
             return;
         }

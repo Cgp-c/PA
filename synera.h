@@ -360,6 +360,7 @@ private:
     QRect recruitListViewport() const;
     QRect unitListViewport() const;
     void renderLeftButtons(QPainter& painter);   // 左栏底部固定按钮（Pop+/合成树/自定义）
+    void renderListHeaders(QPainter& painter);   // 固定层列表头（Hero Info / Recruit + Refresh）
     void drawPanelScrollbar(QPainter& painter, const QRect& vp, int scroll, int max);
     int m_unitListLegendBottom = 0;              // renderUI 每帧更新（存活列表视口顶）
 };
