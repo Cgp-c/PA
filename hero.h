@@ -52,4 +52,7 @@ public:
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { assassinSkill(board, allUnits); }
 };
 
+// 阵营判定：替代散落各处的 dynamic_cast 样板
+inline bool isHeroSide(const Unit* u) { return u && dynamic_cast<const Hero*>(u) != nullptr; }
+
 #endif // HERO_H

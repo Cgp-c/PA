@@ -25,6 +25,7 @@ qt_add_executable(Synera
     synera.ui
     unit.h
     unit.cpp
+    unitvisuals.h
     hero.h
     hero.cpp
     enemy.h
@@ -35,9 +36,14 @@ qt_add_executable(Synera
     board.cpp
     equipsynthwindow.h
     equipsynthwindow.cpp
+    custombattlewindow.h
+    custombattlewindow.cpp
 )
 
 target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)
+
+# 打开编译器警告，便于持续做代码质量校验
+target_compile_options(Synera PRIVATE -Wall -Wextra)
 
 # 拷贝单位图片资源到构建目录，运行时按相对路径 src/unit/ 加载（Boss 立绘等）
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/src/unit/ DESTINATION ${CMAKE_BINARY_DIR}/src/unit)

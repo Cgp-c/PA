@@ -55,4 +55,7 @@ public:
     void useSkill2(Board& board, std::vector<Unit*>& allUnits) override;
 };
 
+// 阵营判定：替代散落各处的 dynamic_cast 样板
+inline bool isEnemySide(const Unit* u) { return u && dynamic_cast<const Enemy*>(u) != nullptr; }
+
 #endif // ENEMY_H

@@ -2,8 +2,10 @@
 #include "ui_synera.h"
 #include "hero.h"
 #include "enemy.h"
+#include "unitvisuals.h"
 #include "weapon.h"
 #include "equipsynthwindow.h"
+#include "custombattlewindow.h"
 #include "equipicons.h"
 #include <QPainter>
 #include <QPainterPath>
@@ -60,11 +62,16 @@ Synera::Synera(QWidget *parent)
     connect(m_gameTimer, &QTimer::timeout, this, &Synera::gameLoop);
     m_gameTimer->start(16);
     m_frameClock.start();
+
+    // 自动化验证钩子：SYNERA_SHOW_CUSTOM=1 时启动即打开自定义难度窗口
+    if (qEnvironmentVariableIsSet("SYNERA_SHOW_CUSTOM"))
+        showCustomBattleWindow();
 }
 
 Synera::~Synera()
 {
-    delete m_equipSynthWindow; // 主窗口析构时释放合成树窗口
+    delete m_equipSynthWindow;    // 主窗口析构时释放合成树窗口
+    delete m_customBattleWindow;  // 释放自定义难度窗口
     delete ui;
 }
 
@@ -77,6 +84,60 @@ void Synera::showEquipSynthWindow()
     m_equipSynthWindow->show();
     m_equipSynthWindow->raise();
     m_equipSynthWindow->activateWindow();
+}
+
+void Synera::showCustomBattleWindow()
+{
+    if (!m_customBattleWindow) {
+        // 延迟创建：首次点击按钮时才实例化（与装备合成树同模式）
+        m_customBattleWindow = new CustomBattleWindow(nullptr);
+        connect(m_customBattleWindow, &CustomBattleWindow::startRequested,
+                this, &Synera::startCustomBattle);
+    }
+    m_customBattleWindow->show();
+    m_customBattleWindow->raise();
+    m_customBattleWindow->activateWindow();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 自定义战斗：按窗口配置生成敌方编成，独立于关卡系统
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::startCustomBattle()
+{
+    if (!m_customBattleWindow) return;
+    if (m_phase != GamePhase::Preparation || m_gameOver) return;
+    if (countBoardHeroes() <= 0) return;          // 至少一名上场英雄
+    if (!m_customBattleWindow->isValid()) return; // 窗口侧校验
+
+    // 防御性再校验：字段范围 + 总量上限（不信任跨窗口数据）
+    const auto specs = m_customBattleWindow->specs();
+    int total = 0;
+    for (const auto& sp : specs) {
+        if (sp.type < 0 || sp.type > static_cast<int>(UnitType::Boss)) return;
+        if (sp.star < 0 || sp.star > 3) return;
+        if (sp.count < 1) return;
+        total += sp.count;
+        if (total > CustomBattleWindow::MAX_ENEMIES) return;
+    }
+    if (total < 1) return;
+
+    for (const auto& sp : specs) {
+        bool isBoss = static_cast<UnitType>(sp.type) == UnitType::Boss;
+        for (int i = 0; i < sp.count; ++i) {
+            // 整星制：starLevel = 整星 × 2（与关卡 4=2星/6=3星一致）
+            Unit* eu = createUnitFromPool(static_cast<UnitType>(sp.type), false,
+                                          isBoss ? 0 : sp.star * 2, isBoss);
+            if (!placeEnemyRandom(eu)) break;   // 理论上到不了这里（已校验上限）
+        }
+    }
+
+    m_customBattle = true;
+    m_showLevelLoss = false;
+    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    m_phase = GamePhase::Battle;
+    m_frameCounter = 0;
+    m_burnTickCount = 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -97,6 +158,7 @@ void Synera::initGame()
     m_showLevelLoss = false;
     m_frameCounter = 0;
     m_burnTickCount = 0;
+    m_customBattle = false;
     m_currentLevel = 1;
     m_playerHp = 100;
     m_gold = 8000;
@@ -141,6 +203,7 @@ void Synera::initLevel()
     m_frameCounter = 0;
     m_burnTickCount = 0;
     m_pendingGold = 0;
+    m_customBattle = false;
     // 特效已在 endLevel()/initGame() 开头清空，这里无需重复清理
 
     refreshRecruitment();
@@ -163,6 +226,7 @@ int Synera::heroCost(UnitType t) const
         case UnitType::Mage:     return 80;
         case UnitType::Support:  return 50;
         case UnitType::Assassin: return 60;
+        case UnitType::Boss:     return 0;   // Boss 不可招募
     }
     return 0;
 }
@@ -292,7 +356,7 @@ void Synera::checkAutoStarUp()
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (!dynamic_cast<Hero*>(u)) continue;
+            if (!isHeroSide(u)) continue;
             int fullStar = u->getStarLevel() / 2;
             groups[{u->getName(), fullStar}].push_back({u, true, x, y, -1});
         }
@@ -302,7 +366,7 @@ void Synera::checkAutoStarUp()
     for (int i = 0; i < 16; ++i) {
         Unit* u = m_recycleSlots[i];
         if (!u || u->isDead() || u->isDisappeared()) continue;
-        if (!dynamic_cast<Hero*>(u)) continue;
+        if (!isHeroSide(u)) continue;
         int fullStar = u->getStarLevel() / 2;
         groups[{u->getName(), fullStar}].push_back({u, false, -1, -1, i});
     }
@@ -388,21 +452,26 @@ void Synera::checkAutoStarUp()
 // 开始战斗
 // ═══════════════════════════════════════════════════════════════
 
+// 在敌方半场随机放置一个敌方单位；随机 100 次失败后按行扫描兜底
+bool Synera::placeEnemyRandom(Unit* eu)
+{
+    bool placed = false;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        int ex = std::rand() % Board::SIZE;
+        int ey = std::rand() % (Board::SIZE / 2);
+        if (m_board.placeUnit(eu, ex, ey)) { placed = true; break; }
+    }
+    if (!placed) {
+        for (int y = 0; y < Board::SIZE / 2 && !placed; ++y)
+            for (int x = 0; x < Board::SIZE && !placed; ++x)
+                if (m_board.placeUnit(eu, x, y)) placed = true;
+    }
+    return placed;
+}
+
 void Synera::startBattle()
 {
-    auto placeRandom = [&](Unit* eu) {
-        bool placed = false;
-        for (int attempt = 0; attempt < 100; ++attempt) {
-            int ex = std::rand() % Board::SIZE;
-            int ey = std::rand() % (Board::SIZE / 2);
-            if (m_board.placeUnit(eu, ex, ey)) { placed = true; break; }
-        }
-        if (!placed) {
-            for (int y = 0; y < Board::SIZE / 2 && !placed; ++y)
-                for (int x = 0; x < Board::SIZE && !placed; ++x)
-                    if (m_board.placeUnit(eu, x, y)) placed = true;
-        }
-    };
+    auto placeRandom = [this](Unit* eu) { placeEnemyRandom(eu); };
 
     if (m_currentLevel <= 3) {
         // 关卡 1-3：每种类型 N 个 0 星敌方
@@ -462,6 +531,31 @@ void Synera::endLevel(bool playerWon)
     }
     for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
 
+    // ── 自定义战斗结算：不影响关卡进度 / 玩家 HP，无利息与通关奖励 ──
+    if (m_customBattle) {
+        if (playerWon) {
+            std::vector<Unit*> survivingHeroes = collectSurvivingHeroes();
+            for (Unit* u : survivingHeroes)
+                u->heal(20);
+            retireHeroesToRecycle(survivingHeroes);
+            checkAutoStarUp();
+            m_gold += m_pendingGold;              // 仅击杀金币（全额）
+        } else {
+            m_gold += m_pendingGold / 2;           // 击杀金币（半额）
+            for (int y = 0; y < Board::SIZE; ++y)
+                for (int x = 0; x < Board::SIZE; ++x) {
+                    Unit* u = m_board.getUnitAt(x, y);
+                    if (u && isEnemySide(u))
+                        u->setDisappeared(true);
+                }
+            retireHeroesToRecycle(collectSurvivingHeroes());
+        }
+        m_pendingGold = 0;
+        m_customBattle = false;
+        initLevel();
+        return;
+    }
+
     if (playerWon) {
         // 收集场上存活英雄并按星数、类型排序
         std::vector<Unit*> survivingHeroes = collectSurvivingHeroes();
@@ -493,7 +587,7 @@ void Synera::endLevel(bool playerWon)
             for (int x = 0; x < Board::SIZE; ++x) {
                 Unit* u = m_board.getUnitAt(x, y);
                 if (u && !u->isDead() && !u->isDisappeared()
-                    && dynamic_cast<Enemy*>(u) != nullptr)
+                    && isEnemySide(u))
                     ++remaining;
             }
         }
@@ -505,7 +599,7 @@ void Synera::endLevel(bool playerWon)
         for (int y = 0; y < Board::SIZE; ++y)
             for (int x = 0; x < Board::SIZE; ++x) {
                 Unit* u = m_board.getUnitAt(x, y);
-                if (u && dynamic_cast<Enemy*>(u) != nullptr)
+                if (u && isEnemySide(u))
                     u->setDisappeared(true);
             }
 
@@ -858,29 +952,7 @@ static void drawStar(QPainter& painter, const QPointF& center, double radius, in
     }
 }
 
-static QColor typeFillColor(UnitType t, bool isHero)
-{
-    switch (t) {
-        case UnitType::Warrior:  return isHero ? QColor(210, 100, 30)  : QColor(180, 70, 20);
-        case UnitType::Mage:     return isHero ? QColor(130, 80, 210)  : QColor(100, 55, 170);
-        case UnitType::Support:  return isHero ? QColor(55, 170, 100)  : QColor(40, 140, 70);
-        case UnitType::Assassin: return isHero ? QColor(200, 180, 40)  : QColor(160, 140, 20);
-    }
-    return QColor(128, 128, 128);
-}
-
-static QString typeLabel(UnitType t)
-{
-    switch (t) {
-        case UnitType::Warrior:  return QString::fromUtf8("\346\210\230"); // 战
-        case UnitType::Mage:     return QString::fromUtf8("\346\263\225"); // 法
-        case UnitType::Support:  return QString::fromUtf8("\350\276\205"); // 辅
-        case UnitType::Assassin: return QString::fromUtf8("\345\210\272"); // 刺
-    }
-    return "?";
-}
-
-// 类型英文名（信息面板与招募区共用）
+// typeFillColor/typeLabel/unitTypeNameEn 移至 unitvisuals.h，与独立窗口共享
 static const char* UNIT_TYPE_NAMES[] = {"Warrior", "Mage", "Support", "Assassin"};
 
 // 统一计算单位装备框宽度：渲染与命中检测共用同一份计算，保证两边永远对齐。
@@ -904,7 +976,7 @@ bool Synera::anyHeroOnPlayerHalf() const
 {
     for (int y = Board::SIZE / 2; y < Board::SIZE; ++y)
         for (int x = 0; x < Board::SIZE; ++x)
-            if (dynamic_cast<Hero*>(m_board.getUnitAt(x, y)))
+            if (isHeroSide(m_board.getUnitAt(x, y)))
                 return true;
     return false;
 }
@@ -923,7 +995,7 @@ std::vector<Unit*> Synera::collectSurvivingHeroes() const
     for (int y = 0; y < Board::SIZE; ++y)
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
-            if (!u || dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (!u || !isHeroSide(u)) continue;
             if (u->isDead() || u->isDisappeared()) continue;
             heroes.push_back(u);
         }
@@ -957,7 +1029,7 @@ void Synera::renderUnits(QPainter& painter)
             int m = 6;
             QRect ur = rc.adjusted(m, m, -m, -m);
 
-            bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
+            bool isHero = isHeroSide(unit);
             UnitType t = unit->getType();
             QColor fill = typeFillColor(t, isHero);
             QColor border = isHero ? QColor(100, 170, 255) : QColor(235, 90, 90);
@@ -1492,6 +1564,8 @@ void Synera::renderHeroInfo(QPainter& painter)
         int lh = 10;
         int baseCost = heroCost(slot.type);
         switch (slot.type) {
+            case UnitType::Boss:       // 面板不展示 Boss，防御性处理
+                break;
             case UnitType::Warrior:
                 painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(WarriorHero::BASE_HP).arg(WarriorHero::BASE_ATK));
                 painter.drawText(sx, sy + lh, "Rng:1  Spd:60/120");
@@ -1638,6 +1712,24 @@ void Synera::renderRecruitment(QPainter& painter)
     synthBtnFont.setBold(true);
     painter.setFont(synthBtnFont);
     painter.drawText(synthBtnRect, Qt::AlignCenter, QString::fromUtf8("\350\243\205\345\244\207\345\220\210\346\210\220\346\240\221")); // 装备合成树
+
+    // 自定义难度按钮（装备合成树按钮下方）
+    int customBtnY = synthBtnRect.bottom() + 8;
+    QRect customBtnRect(LEFT_PANEL_X, customBtnY, LEFT_PANEL_W, 22);
+    m_customButtonRect = customBtnRect;
+
+    bool canCustom = (m_phase == GamePhase::Preparation && !m_gameOver);
+    painter.setBrush(canCustom ? QColor(70, 45, 80) : QColor(50, 50, 58));
+    painter.setPen(QPen(canCustom ? QColor(190, 110, 230) : QColor(90, 90, 95), 1));
+    painter.drawRoundedRect(customBtnRect, 4, 4);
+
+    painter.setPen(canCustom ? QColor(220, 170, 250) : QColor(140, 140, 145));
+    QFont customBtnFont;
+    customBtnFont.setPixelSize(9);
+    customBtnFont.setBold(true);
+    painter.setFont(customBtnFont);
+    painter.drawText(customBtnRect, Qt::AlignCenter, QString::fromUtf8("自定义难度"));
+
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1851,7 +1943,7 @@ Unit* Synera::findBoardEquipSlotAt(const QPoint& pixel, EquipType& outType) cons
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (!dynamic_cast<Hero*>(u)) continue;
+            if (!isHeroSide(u)) continue;
             QRect rc = cellRect(x, y);
             int boxH = 10, boxGap = 1;
             int boxStartY = rc.top() + 1;
@@ -1880,7 +1972,7 @@ Unit* Synera::findRecycleEquipSlotAt(const QPoint& pixel, EquipType& outType) co
             int idx = row * 8 + col;
             Unit* u = m_recycleSlots[idx];
             if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (!dynamic_cast<Hero*>(u)) continue;
+            if (!isHeroSide(u)) continue;
             QRect rc = recycleSlotRect(row, col);
             int eqBoxH = 8, eqBoxGap = 1;
             int eqBoxStartY = rc.top() + 2;
@@ -1916,7 +2008,7 @@ void Synera::renderDragGhost(QPainter& painter)
         painter.save();
         painter.setOpacity(0.75);
 
-        bool isHero = dynamic_cast<Hero*>(m_draggedUnit) != nullptr;
+        bool isHero = isHeroSide(m_draggedUnit);
         UnitType t = m_draggedUnit->getType();
         painter.setBrush(typeFillColor(t, isHero));
         painter.setPen(QPen(QColor(255, 255, 100), 2));
@@ -1985,6 +2077,8 @@ void Synera::renderUI(QPainter& painter)
     lvlFont.setBold(true);
     painter.setFont(lvlFont);
     QString lvlText = QString("Level %1 / %2").arg(m_currentLevel).arg(MAX_LEVEL);
+    if (m_customBattle)
+        lvlText += QString::fromUtf8(" (自定义)");
     painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE / 2 - 50, infoY, lvlText);
 
     // 金币 - 棋盘右上方
@@ -2100,7 +2194,7 @@ void Synera::renderUI(QPainter& painter)
     painter.setFont(listFont);
     for (auto& u : m_units) {
         if (u->isDisappeared() || u->isDead()) continue;
-        bool isH = dynamic_cast<Hero*>(u.get()) != nullptr;
+        bool isH = isHeroSide(u.get());
         painter.setPen(isH ? QColor(100, 170, 255) : QColor(240, 100, 100));
         QString info = QString("%1  HP:%2/%3  MP:%4/%5  (%6,%7)")
             .arg(QString::fromStdString(u->getName()))
@@ -2158,7 +2252,7 @@ int Synera::countBoardHeroes() const
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (u && !u->isDead() && !u->isDisappeared()
-                && dynamic_cast<Hero*>(u) != nullptr
+                && isHeroSide(u)
                 && !u->isClone())
                 ++count;
         }
@@ -2230,6 +2324,12 @@ void Synera::mousePressEvent(QMouseEvent *event)
         // 装备合成树按钮
         if (m_synthTreeButtonRect.contains(pos)) {
             showEquipSynthWindow();
+            return;
+        }
+
+        // 自定义难度按钮
+        if (m_customButtonRect.contains(pos)) {
+            showCustomBattleWindow();
             return;
         }
 
@@ -2336,7 +2436,7 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (!dynamic_cast<Hero*>(u)) continue;
+            if (!isHeroSide(u)) continue;
             if (cellRect(x, y).contains(mousePos)) {
                 if (tryPlaceOnHero(u))
                     return;
@@ -2351,7 +2451,7 @@ void Synera::processWeaponDrop(const QPoint& mousePos)
             int idx = row * 8 + col;
             Unit* u = m_recycleSlots[idx];
             if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (!dynamic_cast<Hero*>(u)) continue;
+            if (!isHeroSide(u)) continue;
             if (recycleSlotRect(row, col).contains(mousePos)) {
                 if (tryPlaceOnHero(u))
                     return;
@@ -2432,7 +2532,7 @@ void Synera::processDragStart(const QPoint& mousePos)
 
     // 2) 棋盘上的英雄
     Unit* clicked = findUnitAtPixel(mousePos);
-    if (clicked && dynamic_cast<Hero*>(clicked) && !clicked->isDisappeared()) {
+    if (clicked && isHeroSide(clicked) && !clicked->isDisappeared()) {
         m_draggedUnit = clicked;
         m_dragFromRecycleIndex = -1;
         m_dragCurrentPos = mousePos;
@@ -2536,7 +2636,7 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
 
     std::vector<Unit*> enemiesBefore;
     for (Unit* eu : alive)
-        if (!eu->isDead() && !eu->isDisappeared() && dynamic_cast<Enemy*>(eu))
+        if (!eu->isDead() && !eu->isDisappeared() && isEnemySide(eu))
             enemiesBefore.push_back(eu);
 
     (caster->*skill)(m_board, alive);
@@ -2560,10 +2660,10 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
 void Synera::shareManaToMages(Unit* caster, const std::vector<Unit*>& alive) const
 {
     if (!(m_bondActive[1] && caster->getType() == UnitType::Mage
-          && dynamic_cast<Hero*>(caster) && !caster->isClone()))
+          && isHeroSide(caster) && !caster->isClone()))
         return;
     for (Unit* mu : alive)
-        if (mu != caster && mu->getType() == UnitType::Mage && dynamic_cast<Hero*>(mu) && !mu->isClone())
+        if (mu != caster && mu->getType() == UnitType::Mage && isHeroSide(mu) && !mu->isClone())
             mu->gainMana();
 }
 
@@ -2574,7 +2674,7 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
         if (u->isBurning()) {
             u->tickBurning();
             if (u->isDead() && !u->hasReviveTriggered()) {
-                if (dynamic_cast<Enemy*>(u) != nullptr) {
+                if (isEnemySide(u)) {
                     m_pendingGold += enemyGoldValue(u);
                     tryEquipDrop();
                 }
@@ -2603,7 +2703,7 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         if (assassin->isDead() || assassin->isDisappeared()) continue;
         if (assassin->getMana() < assassin->getMaxMana()) continue;
 
-        bool isHero = dynamic_cast<Hero*>(assassin) != nullptr;
+        bool isHero = isHeroSide(assassin);
         Position ap = assassin->getPosition();
 
         // 索敌：最近敌方，距离 ≤2
@@ -2612,7 +2712,7 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         for (Unit* eu : alive) {
             if (eu == assassin || eu->isDead() || eu->isDisappeared()) continue;
             if (deadSet.count(eu)) continue;
-            bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+            bool euIsHero = isHeroSide(eu);
             if (euIsHero == isHero) continue;
             int d = manhattanDist(ap, eu->getPosition());
             if (d <= 2 && d < bestDist) { bestDist = d; target = eu; }
@@ -2622,14 +2722,14 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         // 互杀检测：两人都是满技能刺客且互为最近目标
         bool mutualKill = false;
         if (target->getType() == UnitType::Assassin && target->getMana() >= target->getMaxMana()) {
-            bool tIsHero = dynamic_cast<Hero*>(target) != nullptr;
+            bool tIsHero = isHeroSide(target);
             Unit* tTarget = nullptr;
             int tBestDist = 999;
             Position tp = target->getPosition();
             for (Unit* eu : alive) {
                 if (eu == target || eu->isDead() || eu->isDisappeared()) continue;
                 if (deadSet.count(eu)) continue;
-                bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+                bool euIsHero = isHeroSide(eu);
                 if (euIsHero == tIsHero) continue;
                 int d = manhattanDist(tp, eu->getPosition());
                 if (d <= 2 && d < tBestDist) { tBestDist = d; tTarget = eu; }
@@ -2642,8 +2742,8 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
         if (mutualKill) {
             deadSet.insert(assassin);
             deadSet.insert(target);
-            bool aEnemy = dynamic_cast<Enemy*>(assassin) != nullptr;
-            bool tEnemy = dynamic_cast<Enemy*>(target) != nullptr;
+            bool aEnemy = isEnemySide(assassin);
+            bool tEnemy = isEnemySide(target);
             m_pendingDamageEvents[assassin].push_back(-assassin->getHp());
             m_pendingDamageEvents[target].push_back(-target->getHp());
             assassin->takeDamage(assassin->getHp());
@@ -2754,30 +2854,30 @@ void Synera::processCombatFrame()
             bool isSupport = u->canHeal();
 
             if (isSupport) {
-                bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+                bool isHero = isHeroSide(u);
                 for (Unit* au : alive) {
                     if (au == u || au->isDead() || au->isDisappeared()) continue;
-                    bool auIsHero = dynamic_cast<Hero*>(au) != nullptr;
+                    bool auIsHero = isHeroSide(au);
                     if (auIsHero != isHero) continue;
                     if (au->getHp() < au->getMaxHp()) { hasValidTarget = true; break; }
                 }
             } else if (u->getType() == UnitType::Mage) {
                 // 法师技能需周围5×5有敌方
-                bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+                bool isHero = isHeroSide(u);
                 int range = 2;
                 for (Unit* eu : alive) {
                     if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
-                    bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+                    bool euIsHero = isHeroSide(eu);
                     if (euIsHero == isHero) continue;
                     int dx = std::abs(u->getPosition().x - eu->getPosition().x);
                     int dy = std::abs(u->getPosition().y - eu->getPosition().y);
                     if (dx <= range && dy <= range) { hasValidTarget = true; break; }
                 }
             } else {
-                bool isHero = dynamic_cast<Hero*>(u) != nullptr;
+                bool isHero = isHeroSide(u);
                 for (Unit* eu : alive) {
                     if (eu == u || eu->isDead() || eu->isDisappeared()) continue;
-                    bool euIsHero = dynamic_cast<Hero*>(eu) != nullptr;
+                    bool euIsHero = isHeroSide(eu);
                     if (euIsHero != isHero) { hasValidTarget = true; break; }
                 }
             }
@@ -2910,7 +3010,7 @@ void Synera::processCombatFrame()
                     m_pendingDamageEvents[target].push_back(-dealt);
 
                     if (target->isDead() && !target->hasReviveTriggered()) {
-                        bool isEnemy = dynamic_cast<Enemy*>(target) != nullptr;
+                        bool isEnemy = isEnemySide(target);
                         if (isEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
                         m_board.removeUnit(target->getPosition().x, target->getPosition().y);
                     }
@@ -3002,6 +3102,7 @@ int Synera::fastestAttackSpeed() const
 
 void Synera::flushDamageEvents(const std::vector<Unit*>& alive)
 {
+    Q_UNUSED(alive); // 接口保留 alive 以备后续按存活状态过滤
     if (m_pendingDamageEvents.empty()) return;
     int fastAtk = fastestAttackSpeed();
 
@@ -3032,7 +3133,7 @@ void Synera::flushDamageEvents(const std::vector<Unit*>& alive)
 
 Unit* Synera::findNearestEnemyFor(Unit* unit) const
 {
-    bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
+    bool isHero = isHeroSide(unit);
     Unit* best = nullptr;
     int bestDistSq = 999999;
     int bestXDist = 999;
@@ -3041,7 +3142,7 @@ Unit* Synera::findNearestEnemyFor(Unit* unit) const
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u == unit || u->isDead() || u->isDisappeared()) continue;
-            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
+            bool uIsHero = isHeroSide(u);
             if (uIsHero == isHero) continue;
 
             int dx = unit->getPosition().x - u->getPosition().x;
@@ -3060,7 +3161,7 @@ Unit* Synera::findNearestEnemyFor(Unit* unit) const
 
 Unit* Synera::findHealTarget(Unit* support) const
 {
-    bool isHero = dynamic_cast<Hero*>(support) != nullptr;
+    bool isHero = isHeroSide(support);
     Unit* best = nullptr;
     int bestDistSq = 999999;
     UnitType bestType = UnitType::Support;
@@ -3071,7 +3172,7 @@ Unit* Synera::findHealTarget(Unit* support) const
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u == support || u->isDead() || u->isDisappeared()) continue;
             if (u->getHp() >= u->getMaxHp()) continue;
-            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
+            bool uIsHero = isHeroSide(u);
             if (uIsHero != isHero) continue;
 
             int dx = support->getPosition().x - u->getPosition().x;
@@ -3101,7 +3202,7 @@ Unit* Synera::findHealTarget(Unit* support) const
 
 Unit* Synera::findNearestAlly(Unit* unit) const
 {
-    bool isHero = dynamic_cast<Hero*>(unit) != nullptr;
+    bool isHero = isHeroSide(unit);
     Unit* best = nullptr;
     int bestDistSq = 999999;
     int bestXDist = 999;
@@ -3110,7 +3211,7 @@ Unit* Synera::findNearestAlly(Unit* unit) const
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u == unit || u->isDead() || u->isDisappeared()) continue;
-            bool uIsHero = dynamic_cast<Hero*>(u) != nullptr;
+            bool uIsHero = isHeroSide(u);
             if (uIsHero != isHero) continue;
 
             int dx = unit->getPosition().x - u->getPosition().x;
@@ -3181,6 +3282,7 @@ bool Synera::canAttack(Unit* attacker, Unit* target) const
 void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<Unit*>& mages,
                               std::vector<Unit*>& supports, std::vector<Unit*>& assassins, std::vector<Unit*>& alive)
 {
+    Q_UNUSED(mages); // 法师羁绊（吟咏魔典）在回蓝处实时处理，此处无需遍历
     switch (idx) {
     case 0: // 战斗不息
         for (Unit* w : warriors) w->applyBondHpMult(2.0);
@@ -3198,7 +3300,7 @@ void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<
         break;
     case 4: // 全军出击
         for (Unit* u : alive) {
-            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (!isHeroSide(u)) continue;
             u->applyBondManaMod(-20);
             u->applyBondAtkBonus(20);
             u->applyBondHpMult(1.5);
@@ -3212,7 +3314,7 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
     switch (idx) {
     case 0: // 战斗不息
         for (Unit* u : alive) {
-            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Warrior && !u->isClone())
                 u->revertBondHpMult(2.0);
         }
@@ -3221,7 +3323,7 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
         break;
     case 2: // 生生不息
         for (Unit* u : alive) {
-            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Support && !u->isClone()) {
                 u->revertBondHealMult(2.0);
                 u->revertBondRangeBonus(1);
@@ -3233,7 +3335,7 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
         break;
     case 4: // 全军出击
         for (Unit* u : alive) {
-            if (dynamic_cast<Hero*>(u) == nullptr) continue;
+            if (!isHeroSide(u)) continue;
             u->revertBondManaMod(-20);
             u->revertBondAtkBonus(20);
             u->revertBondHpMult(1.5);
@@ -3258,7 +3360,7 @@ void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
     // 统计棋盘上玩家方英雄类型
     std::vector<Unit*> warriors, mages, supports, assassins;
     for (Unit* u : alive) {
-        if (dynamic_cast<Hero*>(u) == nullptr) continue;
+        if (!isHeroSide(u)) continue;
         switch (u->getType()) {
             case UnitType::Warrior: warriors.push_back(u); break;
             case UnitType::Mage: mages.push_back(u); break;
@@ -3458,7 +3560,6 @@ void Synera::renderBonds(QPainter& painter)
     if (m_popUpgradeButtonRect.isNull()) return;
     int bondStartY = m_popUpgradeButtonRect.bottom() + 10;
     int bondX = LEFT_PANEL_X;
-    int bondW = LEFT_PANEL_W;
 
     struct BondUIData {
         const char* name;
@@ -3519,7 +3620,7 @@ void Synera::checkLevelEnd()
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
             if (!u || u->isDead() || u->isDisappeared()) continue;
-            if (dynamic_cast<Hero*>(u) != nullptr)
+            if (isHeroSide(u))
                 hasHeroAny = true;
             else
                 hasEnemyAny = true;

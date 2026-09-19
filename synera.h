@@ -65,6 +65,7 @@ struct GhostEffect {               // 刺客瞬移残影
 };
 
 class EquipSynthWindow;
+class CustomBattleWindow;
 
 class Synera : public QMainWindow
 {
@@ -84,11 +85,14 @@ protected:
 private slots:
     void gameLoop();
     void showEquipSynthWindow();
+    void showCustomBattleWindow();
+    void startCustomBattle();
 
 private:
     void initGame();
     void initLevel();
     void startBattle();
+    bool placeEnemyRandom(Unit* eu);   // 在敌方半场随机放置一个敌方单位
     void endLevel(bool playerWon);
     Unit* createUnitFromPool(UnitType type, bool isHero, int starLevel = 0, bool isBoss = false);
     Unit* createUpgradedHero(UnitType type, int starLevel);
@@ -237,6 +241,11 @@ private:
 
     // 装备合成树窗口（非模态，指针管理生命周期）
     EquipSynthWindow* m_equipSynthWindow = nullptr;
+
+    // 自定义难度窗口（非模态独立渲染层）+ 自定义战斗状态
+    CustomBattleWindow* m_customBattleWindow = nullptr;
+    QRect m_customButtonRect;             // 主界面“自定义难度”按钮
+    bool m_customBattle = false;          // 当前战斗是否为自定义战斗
 
     // 人口上限
     int m_populationCap;
