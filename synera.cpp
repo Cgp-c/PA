@@ -2689,10 +2689,7 @@ void Synera::renderUI(QPainter& painter)
                                        : QString::fromUtf8("客户端"))
                 : QString::fromUtf8("联机未连接 — 请通过联机大厅建立连接");
             painter.setPen(m_pvpConnected ? QColor(120, 200, 255) : QColor(200, 120, 90));
-            painter.drawText(textX, BOARD_OFFSET_Y + 30, status);
-            status.clear();   // 已绘制，跳过下方通用绘制
-        }
-        if (!status.isEmpty() && m_showLevelLoss) {
+        } else if (m_showLevelLoss) {
             status = "PREPARATION PHASE  —  Level Failed!";
             painter.setPen(QColor(255, 100, 80));
         } else {
@@ -4156,7 +4153,10 @@ void Synera::renderBonds(QPainter& painter)
         previewBonds();
 
     if (m_popUpgradeButtonRect.isNull()) return;
-    int bondStartY = m_popUpgradeButtonRect.bottom() + 10;
+    // 羁绊面板位于左侧按钮列最下方（自定义难度按钮下），避免与按钮重叠
+    int bondStartY = m_customButtonRect.isNull()
+        ? m_popUpgradeButtonRect.bottom() + 40   // 兜底：按钮矩形尚未生成时
+        : m_customButtonRect.bottom() + 10;
     int bondX = LEFT_PANEL_X;
 
     struct BondUIData {
@@ -4178,9 +4178,9 @@ void Synera::renderBonds(QPainter& painter)
     descFont.setPixelSize(6);
 
     for (int i = 0; i < 5; ++i) {
-        int by = bondStartY + i * 28;
+        int by = bondStartY + i * 17;   // 单行紧凑排版，5 行共 85px
         int boxSize = 8;
-        QRect boxRect(bondX, by + 2, boxSize, boxSize);
+        QRect boxRect(bondX, by, boxSize, boxSize);
 
         // 羁绊激活指示框
         if (m_bondActive[i]) {
@@ -4197,10 +4197,10 @@ void Synera::renderBonds(QPainter& painter)
         painter.setPen(m_bondActive[i] ? QColor(255, 200, 60) : QColor(140, 140, 160));
         painter.drawText(bondX + boxSize + 4, by + 8, bondData[i].name);
 
-        // 羁绊描述
+        // 羁绊描述（与名称同一行）
         painter.setFont(descFont);
         painter.setPen(m_bondActive[i] ? QColor(200, 170, 80) : QColor(100, 100, 120));
-        painter.drawText(bondX + boxSize + 4, by + 18, bondData[i].desc);
+        painter.drawText(bondX + boxSize + 44, by + 8, bondData[i].desc);
     }
 }
 
