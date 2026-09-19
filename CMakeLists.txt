@@ -13,7 +13,7 @@ endif()
 # 强制锁死MinGW生成器，彻底禁止CMake调用VS编译器
 set(CMAKE_GENERATOR "MinGW Makefiles" CACHE INTERNAL "" FORCE)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network)
 qt_standard_project_setup()
 set(CMAKE_AUTORCC ON)   # 编译 resources.qrc（装备图标）进可执行文件
 
@@ -40,11 +40,13 @@ qt_add_executable(Synera
     custombattlewindow.cpp
     startscreen.h
     startscreen.cpp
+    pvplobbywindow.h
+    pvplobbywindow.cpp
     postbattlestatswindow.h
     postbattlestatswindow.cpp
 )
 
-target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)
+target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui Qt6::Network)
 
 # 打开编译器警告，便于持续做代码质量校验
 target_compile_options(Synera PRIVATE -Wall -Wextra)

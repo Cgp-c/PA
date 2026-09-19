@@ -7,6 +7,8 @@
 #include "equipsynthwindow.h"
 #include "custombattlewindow.h"
 #include "startscreen.h"
+#include "pvplobbywindow.h"
+#include <QTcpSocket>
 #include "postbattlestatswindow.h"
 #include "equipicons.h"
 #include <QPainter>
@@ -60,6 +62,7 @@ Synera::Synera(QWidget *parent)
         GameMode gm = GameMode::Campaign;
         if (mode == StartScreen::MODE_ENDLESS) gm = GameMode::Endless;
         else if (mode == StartScreen::MODE_CUSTOM) gm = GameMode::Custom;
+        else if (mode == StartScreen::MODE_PVP) gm = GameMode::PvP;
         setGameMode(gm);
     });
 
@@ -68,6 +71,7 @@ Synera::Synera(QWidget *parent)
         const QString m = qEnvironmentVariable("SYNERA_AUTOMODE").trimmed().toLower();
         if (m == "endless")          setGameMode(GameMode::Endless);
         else if (m == "custom")      setGameMode(GameMode::Custom);
+        else if (m == "pvp")         setGameMode(GameMode::PvP);
         else                         setGameMode(GameMode::Campaign);
     } else {
         show();   // 先展示主窗口背景，开始界面悬浮其上
@@ -81,6 +85,8 @@ Synera::~Synera()
 {
     delete m_equipSynthWindow;    // 主窗口析构时释放合成树窗口
     delete m_customBattleWindow;  // 释放自定义难度窗口
+    closePvpConnection();
+    delete m_pvpLobby;            // 释放联机大厅
     delete m_startScreen;         // 释放开始界面
     delete m_statsWindow;         // 释放战后统计窗口
     delete ui;
@@ -103,8 +109,11 @@ void Synera::showEquipSynthWindow()
 
 void Synera::setGameMode(GameMode mode)
 {
+    if (m_gameMode == GameMode::PvP && mode != GameMode::PvP)
+        closePvpConnection();   // 离开联机模式时断开
     m_gameMode = mode;
     initGame();
+    m_pvpScoreLocal = m_pvpScoreRemote = 0;
 
     if (mode == GameMode::Endless) {
         // 无尽模式初始编成：四职业各 1 个 0 星
@@ -116,6 +125,33 @@ void Synera::setGameMode(GameMode mode)
                              static_cast<int>(UnitType::Support),
                              static_cast<int>(UnitType::Assassin)};
         for (int t : types) m_endlessComp.push_back({t, 0});
+    }
+
+    if (mode == GameMode::PvP) {
+        // 联机模式：打开大厅（连接成功后进入准备阶段）
+        if (!m_pvpLobby) {
+            m_pvpLobby = new PvpLobbyWindow(nullptr);
+            connect(m_pvpLobby, &PvpLobbyWindow::pvpConnected,
+                    this, [this](bool isHost) { startPvpFromLobby(isHost); });
+        }
+        resetPvpRound();
+        m_startScreen->hide();
+        setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+        show();
+        m_pvpLobby->show();
+        m_pvpLobby->raise();
+        m_pvpLobby->activateWindow();
+
+        // 自动化验证钩子：SYNERA_PVP_ROLE=host|guest（可加 SYNERA_PVP_ADDR）
+        if (qEnvironmentVariableIsSet("SYNERA_PVP_ROLE")) {
+            const QString role = qEnvironmentVariable("SYNERA_PVP_ROLE").toLower();
+            if (role == "host") m_pvpLobby->autoHost();
+            else if (role == "guest")
+                m_pvpLobby->autoJoin(qEnvironmentVariableIsSet("SYNERA_PVP_ADDR")
+                                         ? qEnvironmentVariable("SYNERA_PVP_ADDR")
+                                         : QString("127.0.0.1"));
+        }
+        return;
     }
 
     m_startScreen->hide();
@@ -134,6 +170,236 @@ void Synera::showStartScreen()
     m_startScreen->showNormal();
     m_startScreen->raise();
     m_startScreen->activateWindow();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 联机对战（局域网锁步同步）
+//
+// 同步原理：双方用同一份 exe、同一初始棋盘（对方阵容 180° 镜像到敌方
+// 半场）、同一随机种子（主机生成、随 START 下发），战斗为纯帧驱动逻辑
+// （无实时时钟依赖、战斗期间无随机数调用），因此两台机器逐帧推演出
+// 完全一致的过程与结果——展示内容镜像一致，不存在黑箱分歧。
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::startPvpFromLobby(bool isHost)
+{
+    m_pvpIsHost = isHost;
+    m_pvpSocket = m_pvpLobby->takeSocket();
+    if (!m_pvpSocket) return;
+    connect(m_pvpSocket, &QTcpSocket::readyRead, this, &Synera::onPvpReadyRead);
+    connect(m_pvpSocket, &QTcpSocket::disconnected, this, &Synera::onPvpDisconnected);
+    m_pvpConnected = true;
+    resetPvpRound();
+
+    // 自动化验证钩子：SYNERA_PVP_DEMO=1 时自动摆放演示阵容并准备
+    // （主机 3 星、客户端 0 星 → 确定性主机胜，双端对拍结果必须一致）
+    if (qEnvironmentVariableIsSet("SYNERA_PVP_DEMO")) {
+        // SYNERA_PVP_DEMO=1 → 主机强（预期主机胜）；=2 → 客户端强（预期客户端胜）
+        const bool guestStrong = (qEnvironmentVariable("SYNERA_PVP_DEMO") == QByteArray("2"));
+        const UnitType types[] = {UnitType::Warrior, UnitType::Mage,
+                                  UnitType::Support, UnitType::Assassin};
+        const int starLv = guestStrong ? (m_pvpIsHost ? 0 : 6) : (m_pvpIsHost ? 6 : 0);
+        for (int i = 0; i < 4; ++i) {
+            Unit* h = createUnitFromPool(types[i], true, starLv);
+            m_board.placeUnit(h, 1 + i * 2, 6);
+        }
+        pvpReady();
+    }
+}
+
+void Synera::resetPvpRound()
+{
+    initGame();
+    m_gold = 3000;              // 双方同额预算
+    m_populationCap = 10;       // 联机不设人口经济
+    m_pvpLocalReady = false;
+    m_pvpLocalLineup = QJsonObject();
+    m_pvpRemoteLineup = QJsonObject();
+    m_pvpWeapons.clear();       // 上一回合重建单位的装备随快照作废
+}
+
+void Synera::closePvpConnection()
+{
+    if (m_pvpSocket) {
+        m_pvpSocket->disconnect(this);
+        m_pvpSocket->abort();
+        m_pvpSocket->deleteLater();
+        m_pvpSocket = nullptr;
+    }
+    m_pvpConnected = false;
+    m_pvpBattle = false;
+    m_pvpLocalReady = false;
+}
+
+void Synera::sendPvpJson(const QJsonObject& obj)
+{
+    if (!m_pvpSocket || m_pvpSocket->state() != QAbstractSocket::ConnectedState) return;
+    QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    data.append('\n');   // 换行分帧
+    m_pvpSocket->write(data);
+}
+
+void Synera::pvpReady()
+{
+    if (m_gameMode != GameMode::PvP || !m_pvpConnected) return;
+    if (m_phase != GamePhase::Preparation || m_gameOver) return;
+    if (!anyHeroOnPlayerHalf()) return;
+    if (m_pvpLocalReady) return;
+
+    // 序列化己方棋盘英雄
+    QJsonArray units;
+    for (int y = Board::SIZE / 2; y < Board::SIZE; ++y) {
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || !isHeroSide(u) || u->isDead() || u->isDisappeared()) continue;
+            QJsonObject ju;
+            ju["type"] = static_cast<int>(u->getType());
+            ju["star"] = u->getStarLevel();
+            ju["x"] = x;
+            ju["y"] = y;
+            ju["hp"] = u->getHp();
+            ju["maxHp"] = u->getMaxHp();
+            ju["mana"] = u->getMana();
+            QJsonArray eq;
+            for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+                Weapon* w = u->getEquip(static_cast<EquipType>(ei));
+                eq.append(w ? QJsonValue(QString::fromStdString(w->getName()))
+                            : QJsonValue(QJsonValue::Null));
+            }
+            ju["equips"] = eq;
+            units.append(ju);
+        }
+    }
+
+    QJsonObject msg;
+    msg["type"] = "lineup";
+    msg["units"] = units;
+    sendPvpJson(msg);
+    m_pvpLocalLineup = msg;   // 己方快照（开战时统一重建棋盘）
+    m_pvpLocalReady = true;
+
+    // 主机：双方阵容齐备即开战（种子本地生成，随 START 下发给客户端）
+    if (m_pvpIsHost && !m_pvpRemoteLineup.isEmpty()) {
+        unsigned seed = static_cast<unsigned>(std::rand());
+        QJsonObject startMsg;
+        startMsg["type"] = "start";
+        startMsg["seed"] = static_cast<double>(seed);
+        sendPvpJson(startMsg);
+        startPvpBattle(seed);
+    }
+}
+
+// 按阵容快照放置一组单位（asHero=Hero 侧；mirror=整体 180° 镜像到对侧半场）
+void Synera::placePvpLineup(const QJsonObject& lineup, bool asHero, bool mirror)
+{
+    const QJsonArray units = lineup["units"].toArray();
+    for (const QJsonValue& v : units) {
+        const QJsonObject ju = v.toObject();
+        UnitType t = static_cast<UnitType>(ju["type"].toInt());
+        Unit* u = createUnitFromPool(t, asHero, ju["star"].toInt());
+        if (!u) continue;
+
+        // 重建装备（装备改变 HP/攻速等，需在恢复 HP 前装备，与读档同序）
+        const QJsonArray eq = ju["equips"].toArray();
+        for (int ei = 0; ei < static_cast<int>(EquipType::COUNT) && ei < eq.size(); ++ei) {
+            if (eq[ei].isString()) {
+                std::unique_ptr<Weapon> w(createWeaponByName(eq[ei].toString().toStdString()));
+                if (w) {
+                    Weapon* wp = w.get();
+                    m_pvpWeapons.push_back(std::move(w));
+                    u->equip(wp);
+                }
+            }
+        }
+        u->setMaxHp(ju["maxHp"].toInt());
+        u->setHp(ju["hp"].toInt());
+        u->setMana(ju["mana"].toInt());
+
+        int px = mirror ? Board::SIZE - 1 - ju["x"].toInt() : ju["x"].toInt();
+        int py = mirror ? Board::SIZE - 1 - ju["y"].toInt() : ju["y"].toInt();
+        if (!m_board.placeUnit(u, px, py)) {
+            for (int y = 0; y < Board::SIZE; ++y)
+                for (int x = 0; x < Board::SIZE; ++x)
+                    if (m_board.placeUnit(u, x, y)) goto placed;
+        }
+        placed:;
+    }
+}
+
+void Synera::startPvpBattle(unsigned seed)
+{
+    // 双端统一重建【完全相同】的棋盘：
+    //   主机阵容 = Hero 侧（原坐标，下方半场）
+    //   客户端阵容 = 敌方侧（180° 镜像，上方半场）
+    // 两台机器执行同一份重建代码 → 初始状态位相同；再配合同种子 → 锁步一致。
+    m_pvpWeapons.clear();
+    m_units.clear();            // 战斗单位全部由快照重建（unique_ptr 自动析构旧单位）
+    m_board.clear();
+    const QJsonObject& hostLineup  = m_pvpIsHost ? m_pvpLocalLineup  : m_pvpRemoteLineup;
+    const QJsonObject& guestLineup = m_pvpIsHost ? m_pvpRemoteLineup : m_pvpLocalLineup;
+    if (!hostLineup.isEmpty())  placePvpLineup(hostLineup, true, false);
+    if (!guestLineup.isEmpty()) placePvpLineup(guestLineup, false, true);
+
+    std::srand(seed);           // 双端同种子：战斗期无其它随机调用 → 逐帧一致
+    for (auto& up : m_units)
+        if (up) up->resetBattleStats();
+
+    m_pvpBattle = true;
+    m_showLevelLoss = false;
+    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    m_phase = GamePhase::Battle;
+    m_frameCounter = 0;
+    m_burnTickCount = 0;
+}
+
+void Synera::onPvpReadyRead()
+{
+    if (!m_pvpSocket) return;
+    m_pvpRxBuffer.append(m_pvpSocket->readAll());
+    int nl;
+    while ((nl = m_pvpRxBuffer.indexOf('\n')) >= 0) {
+        QByteArray line = m_pvpRxBuffer.left(nl);
+        m_pvpRxBuffer.remove(0, nl + 1);
+        if (line.trimmed().isEmpty()) continue;
+
+        QJsonParseError err;
+        const QJsonDocument doc = QJsonDocument::fromJson(line, &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) continue;
+        const QJsonObject msg = doc.object();
+        const QString type = msg["type"].toString();
+
+        if (type == "lineup") {
+            m_pvpRemoteLineup = msg;
+            if (m_pvpIsHost && m_pvpLocalReady) {
+                unsigned seed = static_cast<unsigned>(std::rand());
+                QJsonObject startMsg;
+                startMsg["type"] = "start";
+                startMsg["seed"] = static_cast<double>(seed);
+                sendPvpJson(startMsg);
+                startPvpBattle(seed);
+            }
+        } else if (type == "start") {
+            if (!m_pvpIsHost)   // 只有客户端会收到 START
+                startPvpBattle(static_cast<unsigned>(msg["seed"].toDouble()));
+        } else if (type == "result") {
+            // 主机权威结果备案（自动化对拍用；正常应与本地锁步结果一致）
+            const bool hostWon = msg["hostWon"].toBool();
+            QFile log("pvp_authority.txt");
+            if (log.open(QIODevice::Append | QIODevice::Text)) {
+                log.write(QString("authority hostWon=%1\n").arg(hostWon).toUtf8());
+                log.close();
+            }
+        }
+    }
+}
+
+void Synera::onPvpDisconnected()
+{
+    m_pvpConnected = false;
+    m_pvpLocalReady = false;
+    if (m_phase == GamePhase::Preparation)
+        m_showLevelLoss = false;
+    update();
 }
 
 void Synera::spawnEndlessWave()
@@ -222,6 +488,9 @@ void Synera::showBattleStats(bool playerWon)
     if (m_gameMode == GameMode::Endless) {
         title = playerWon ? QString::fromUtf8("无尽模式 - 第 %1 波 胜利").arg(m_endlessWave)
                           : QString::fromUtf8("无尽模式 - 终止于第 %1 波").arg(m_endlessWave);
+    } else if (m_pvpBattle) {
+        title = QString::fromUtf8("联机对战 - %1获胜").arg(playerWon ? QString::fromUtf8("主机")
+                                                                     : QString::fromUtf8("客户端"));
     } else if (m_customBattle) {
         title = QString::fromUtf8("自定义战斗 - %1").arg(playerWon ? QString::fromUtf8("胜利")
                                                                     : QString::fromUtf8("失败"));
@@ -757,6 +1026,33 @@ void Synera::endLevel(bool playerWon)
         return;
     }
 
+    // ── 联机对战结算：锁步结果即双方结果，主机补发权威结果 ──
+    if (m_pvpBattle) {
+        const bool hostWon = playerWon;   // hero 侧 = 主机阵容
+        showBattleStats(hostWon);
+        if (m_pvpIsHost) {
+            QJsonObject msg;
+            msg["type"] = "result";
+            msg["hostWon"] = hostWon;
+            sendPvpJson(msg);
+        }
+        if (m_pvpIsHost ? hostWon : !hostWon) ++m_pvpScoreLocal;
+        else ++m_pvpScoreRemote;
+
+        // 验证落盘（自动化对拍：双端 hostWon 必须一致）
+        QFile rf(m_pvpIsHost ? "pvp_result_host.txt" : "pvp_result_guest.txt");
+        if (rf.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            rf.write(QString("hostWon=%1 local=%2 remote=%3\n")
+                         .arg(hostWon ? 1 : 0).arg(m_pvpScoreLocal).arg(m_pvpScoreRemote)
+                         .toUtf8());
+            rf.close();
+        }
+
+        m_pvpBattle = false;
+        resetPvpRound();   // 回到联机准备阶段（连接与比分保留）
+        return;
+    }
+
     // ── 自定义战斗结算：不影响关卡进度 / 玩家 HP，无利息与通关奖励 ──
     if (m_customBattle) {
         showBattleStats(playerWon);
@@ -871,6 +1167,17 @@ void Synera::endLevel(bool playerWon)
 
 static const char* SAVE_PATH = "savegame.json";
 
+QString Synera::savePathForMode() const
+{
+    switch (m_gameMode) {
+        case GameMode::Campaign: return QString::fromUtf8("savegame_campaign.json");
+        case GameMode::Endless:   return QString::fromUtf8("savegame_endless.json");
+        case GameMode::Custom:    return QString::fromUtf8("savegame_custom.json");
+        case GameMode::PvP:       return QString();   // 联机对战不提供存档
+    }
+    return QString();
+}
+
 void Synera::saveGame(const QString& filePath)
 {
     QJsonObject root;
@@ -880,6 +1187,22 @@ void Synera::saveGame(const QString& filePath)
     root["playerHp"] = m_playerHp;
     root["pendingGold"] = m_pendingGold;
     root["populationCap"] = m_populationCap;
+
+    // 无尽模式专属状态（波次/强化/编成）
+    if (m_gameMode == GameMode::Endless) {
+        QJsonObject endless;
+        endless["wave"] = m_endlessWave;
+        endless["buffPct"] = m_endlessBuffPct;
+        QJsonArray comp;
+        for (const auto& ts : m_endlessComp) {
+            QJsonObject c;
+            c["t"] = ts.first;
+            c["s"] = ts.second;
+            comp.append(c);
+        }
+        endless["comp"] = comp;
+        root["endless"] = endless;
+    }
 
     // 招募区
     QJsonArray shopArr;
@@ -1057,6 +1380,26 @@ void Synera::loadGame(const QString& filePath)
         std::string ename = val.toString().toStdString();
         Weapon* wp = createWeaponByName(ename);
         m_equipDrops.push_back(wp);
+    }
+
+    // 无尽模式状态恢复
+    if (m_gameMode == GameMode::Endless && root.contains("endless")) {
+        const QJsonObject endless = root["endless"].toObject();
+        m_endlessWave = endless["wave"].toInt(1);
+        m_endlessBuffPct = endless["buffPct"].toInt(0);
+        m_endlessComp.clear();
+        const QJsonArray comp = endless["comp"].toArray();
+        for (const QJsonValue& v : comp) {
+            const QJsonObject c = v.toObject();
+            m_endlessComp.push_back({c["t"].toInt(), c["s"].toInt()});
+        }
+        if (m_endlessComp.empty()) {
+            const int types[] = {static_cast<int>(UnitType::Warrior),
+                                 static_cast<int>(UnitType::Mage),
+                                 static_cast<int>(UnitType::Support),
+                                 static_cast<int>(UnitType::Assassin)};
+            for (int t : types) m_endlessComp.push_back({t, 0});
+        }
     }
 
     checkAutoStarUp();
@@ -2051,6 +2394,8 @@ void Synera::renderRecycleSlots(QPainter& painter)
 
 void Synera::tryEquipDrop()
 {
+    // 联机对战不掉落装备：随机数调用会破坏双端锁步一致性
+    if (m_pvpBattle) return;
     // 去掉每关获取上限，仅限制掉落区容量
     if ((int)m_equipDrops.size() >= MAX_EQUIP_DROPS) return;
     int chance = 10 * m_currentLevel + 5; // 基础概率 +5%
@@ -2290,7 +2635,9 @@ void Synera::renderUI(QPainter& painter)
     lvlFont.setBold(true);
     painter.setFont(lvlFont);
     QString lvlText;
-    if (m_gameMode == GameMode::Endless)
+    if (m_gameMode == GameMode::PvP)
+        lvlText = QString::fromUtf8("联机对战 %1:%2").arg(m_pvpScoreLocal).arg(m_pvpScoreRemote);
+    else if (m_gameMode == GameMode::Endless)
         lvlText = QString::fromUtf8("无尽 Wave %1").arg(m_endlessWave);
     else if (m_gameMode == GameMode::Custom)
         lvlText = QString::fromUtf8("自定义模式");
@@ -2335,7 +2682,17 @@ void Synera::renderUI(QPainter& painter)
             painter.setPen(QColor(255, 80, 80));
         }
     } else if (m_phase == GamePhase::Preparation) {
-        if (m_showLevelLoss) {
+        if (m_gameMode == GameMode::PvP) {
+            status = m_pvpConnected
+                ? QString::fromUtf8("联机准备（%1）— 购买并布置阵容后点击准备对战")
+                      .arg(m_pvpIsHost ? QString::fromUtf8("主机")
+                                       : QString::fromUtf8("客户端"))
+                : QString::fromUtf8("联机未连接 — 请通过联机大厅建立连接");
+            painter.setPen(m_pvpConnected ? QColor(120, 200, 255) : QColor(200, 120, 90));
+            painter.drawText(textX, BOARD_OFFSET_Y + 30, status);
+            status.clear();   // 已绘制，跳过下方通用绘制
+        }
+        if (!status.isEmpty() && m_showLevelLoss) {
             status = "PREPARATION PHASE  —  Level Failed!";
             painter.setPen(QColor(255, 100, 80));
         } else {
@@ -2356,6 +2713,8 @@ void Synera::renderUI(QPainter& painter)
 
         bool hasBoardHero = anyHeroOnPlayerHalf();
         bool battleAllowed = (m_gameMode != GameMode::Custom);   // 自定义模式战斗走专用窗口
+        if (m_gameMode == GameMode::PvP)
+            battleAllowed = m_pvpConnected;                      // 联机需已连接
 
         QColor btnC = (hasBoardHero && battleAllowed) ? QColor(55, 150, 55) : QColor(75, 75, 75);
         painter.setBrush(btnC);
@@ -2367,9 +2726,14 @@ void Synera::renderUI(QPainter& painter)
         btnFont.setPixelSize(13);
         btnFont.setBold(true);
         painter.setFont(btnFont);
-        painter.drawText(m_startButtonRect, Qt::AlignCenter,
-                         battleAllowed ? QString("Start Battle")
-                                       : QString::fromUtf8("请用自定义难度窗口开战"));
+        QString btnText;
+        if (m_gameMode == GameMode::PvP)
+            btnText = m_pvpLocalReady ? QString::fromUtf8("等待对方准备…")
+                                      : QString::fromUtf8("准备对战");
+        else
+            btnText = battleAllowed ? QString("Start Battle")
+                                    : QString::fromUtf8("请用自定义难度窗口开战");
+        painter.drawText(m_startButtonRect, Qt::AlignCenter, btnText);
 
         if (!hasBoardHero) {
             painter.setPen(QColor(200, 140, 40));
@@ -2505,7 +2869,9 @@ void Synera::mousePressEvent(QMouseEvent *event)
     if (m_phase == GamePhase::Preparation) {
         // 开始战斗按钮
         if (m_startButtonRect.contains(pos)) {
-            if (anyHeroOnPlayerHalf() && m_gameMode != GameMode::Custom)
+            if (m_gameMode == GameMode::PvP)
+                pvpReady();
+            else if (anyHeroOnPlayerHalf() && m_gameMode != GameMode::Custom)
                 startBattle();
             return;
         }
@@ -3872,12 +4238,16 @@ void Synera::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_R) {
         showStartScreen();   // 返回模式选择
-    } else if (event->key() == Qt::Key_F5 && m_phase == GamePhase::Preparation && !m_gameOver
-               && m_gameMode == GameMode::Campaign) {
-        saveGame(SAVE_PATH);
-    } else if (event->key() == Qt::Key_F9 && m_phase == GamePhase::Preparation
-               && m_gameMode == GameMode::Campaign) {
-        loadGame(SAVE_PATH);
+    } else if (event->key() == Qt::Key_F5 && m_phase == GamePhase::Preparation && !m_gameOver) {
+        const QString path = savePathForMode();
+        if (!path.isEmpty()) saveGame(path);   // 每模式独立档位，WriteOnly 截断自动覆盖
+    } else if (event->key() == Qt::Key_F9 && m_phase == GamePhase::Preparation) {
+        QString path = savePathForMode();
+        // 旧版单档兼容：通关模式无分模式档时回退读取 legacy savegame.json
+        if (m_gameMode == GameMode::Campaign && !path.isEmpty() && !QFile::exists(path)
+            && QFile::exists(SAVE_PATH))
+            path = SAVE_PATH;
+        if (!path.isEmpty()) loadGame(path);
     }
     QMainWindow::keyPressEvent(event);
 }

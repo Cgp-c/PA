@@ -80,6 +80,7 @@ public:
 
     void setPosition(int x, int y);
     void setHp(int hp);
+    void setMaxHp(int maxHp);   // 联机阵容恢复等场景需要显式重设上限
 
     // 装备系统
     bool equip(Weapon* weapon);

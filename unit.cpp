@@ -82,6 +82,12 @@ void Unit::takeDamage(int damage)
 
 void Unit::setDisappeared(bool disappeared) { m_disappeared = disappeared; }
 
+void Unit::setMaxHp(int maxHp)
+{
+    m_maxHp = maxHp;
+    if (m_hp > m_maxHp) m_hp = m_maxHp;
+}
+
 void Unit::resetBattleStats()
 {
     m_statDealt = 0;

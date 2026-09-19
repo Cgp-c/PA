@@ -15,6 +15,7 @@ public:
     static constexpr int MODE_CAMPAIGN = 0;
     static constexpr int MODE_ENDLESS  = 1;
     static constexpr int MODE_CUSTOM   = 2;
+    static constexpr int MODE_PVP      = 3;
 
     explicit StartScreen(QWidget* parent = nullptr);
     ~StartScreen() override;

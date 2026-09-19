@@ -12,7 +12,7 @@ StartScreen::StartScreen(QWidget* parent)
     : QWidget(parent, Qt::Window)
 {
     setWindowTitle(QString::fromUtf8("Synera - 开始"));
-    setFixedSize(520, 430);
+    setFixedSize(520, 500);
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_QuitOnClose, false);
     refreshBestWave();
@@ -64,7 +64,7 @@ void StartScreen::paintEvent(QPaintEvent* event)
         const char* desc;
         QColor fill, border, text;
     };
-    const ModeInfo modes[3] = {
+    const ModeInfo modes[4] = {
         { MODE_CAMPAIGN, "通关模式",
                           "5 关递进，打败 Boss 即胜利",
                           QColor(40, 70, 50),  QColor(110, 230, 140), QColor(220, 255, 230) },
@@ -74,12 +74,15 @@ void StartScreen::paintEvent(QPaintEvent* event)
         { MODE_CUSTOM, "自定义模式",
                         "自由配置对手编成的沙箱",
                         QColor(45, 60, 100), QColor(110, 150, 230), QColor(200, 220, 255) },
+        { MODE_PVP, "联机对战",
+                     "局域网双人对战，同屏镜像同步战斗",
+                     QColor(110, 60, 45), QColor(240, 140, 100), QColor(255, 230, 210) },
     };
 
     m_modeRects.clear();
-    for (int i = 0; i < 3; ++i) {
-        int y = 130 + i * 82;
-        QRect rc(60, y, width() - 120, 66);
+    for (int i = 0; i < 4; ++i) {
+        int y = 122 + i * 76;
+        QRect rc(60, y, width() - 120, 62);
         m_modeRects.push_back(rc);
 
         painter.setBrush(modes[i].fill);

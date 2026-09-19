@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QPixmap>
+#include <QJsonObject>
 #include <vector>
 #include <map>
 #include <memory>
@@ -16,7 +17,7 @@
 enum class GamePhase { Preparation, Battle };
 
 // 游戏模式（开始界面选择）
-enum class GameMode { Campaign, Endless, Custom };
+enum class GameMode { Campaign, Endless, Custom, PvP };
 
 struct PoolSlot {
     UnitType type;
@@ -71,6 +72,8 @@ class EquipSynthWindow;
 class CustomBattleWindow;
 class StartScreen;
 class PostBattleStatsWindow;
+class PvpLobbyWindow;
+class QTcpSocket;
 
 class Synera : public QMainWindow
 {
@@ -92,6 +95,8 @@ private slots:
     void showEquipSynthWindow();
     void showCustomBattleWindow();
     void startCustomBattle();
+    void onPvpReadyRead();
+    void onPvpDisconnected();
 
 private:
     void initGame();
@@ -265,6 +270,29 @@ private:
     GameMode m_gameMode = GameMode::Campaign;
     StartScreen* m_startScreen = nullptr;
     PostBattleStatsWindow* m_statsWindow = nullptr;
+
+    // 联机对战（局域网锁步同步）
+    PvpLobbyWindow* m_pvpLobby = nullptr;
+    QTcpSocket* m_pvpSocket = nullptr;
+    bool m_pvpIsHost = false;
+    bool m_pvpConnected = false;
+    bool m_pvpBattle = false;        // 当前战斗是否为联机对战
+    bool m_pvpLocalReady = false;
+    QJsonObject m_pvpLocalLineup;    // 己方阵容快照（开战重建棋盘用）
+    QJsonObject m_pvpRemoteLineup;   // 对方阵容快照
+    std::vector<std::unique_ptr<Weapon>> m_pvpWeapons;  // 联机重建单位的装备持有
+    QByteArray m_pvpRxBuffer;
+    int m_pvpScoreLocal = 0;
+    int m_pvpScoreRemote = 0;
+
+    void startPvpFromLobby(bool isHost);
+    void pvpReady();                       // 序列化己方阵容并发送 + 等待双方就绪
+    void startPvpBattle(unsigned seed);    // 双端同种子锁步开战
+    void placePvpLineup(const QJsonObject& lineup, bool asHero, bool mirror);
+    void resetPvpRound();                  // 回合重置（保留连接与比分）
+    void closePvpConnection();
+    void sendPvpJson(const QJsonObject& obj);
+    QString savePathForMode() const;       // 分模式存档路径（每模式一份，自动覆盖）
 
     // 无尽模式状态
     int m_endlessWave = 1;                       // 当前波次（1 起）
