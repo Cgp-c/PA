@@ -331,12 +331,18 @@ private:
     static constexpr int BOARD_PIXEL_SIZE = CELL_SIZE * Board::SIZE;
     static constexpr int LEFT_PANEL_X = 8;
     static constexpr int LEFT_PANEL_W = 124;
-    static constexpr int INFO_PANEL_Y = 76;
+    static constexpr int INFO_PANEL_Y = 66;     // 英雄信息列表内容起始（视口内）
     static constexpr int INFO_PANEL_H = 64;     // 加高：立绘 26px + 三行数值不叠压
     static constexpr int INFO_SPACING = 6;
-    static constexpr int RECRUIT_START_Y = 390;
+    static constexpr int RECRUIT_START_Y = 296; // 招募列表内容起始（视口内）
     static constexpr int RECRUIT_SLOT_H = 46;   // 加高：立绘 30px + 名称价格分行不叠压
     static constexpr int RECRUIT_SPACING = 6;
+    // 左栏两个独立滚动视口 + 底部固定按钮区
+    static constexpr int INFO_VIEW_Y = 60;
+    static constexpr int INFO_VIEW_H = 208;
+    static constexpr int RECRUIT_VIEW_Y = 288;
+    static constexpr int RECRUIT_VIEW_H = 236;
+    static constexpr int LEFT_BTN_Y = 536;      // Pop+ / 合成树 / 自定义难度 固定区
     static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 16;
     static constexpr int RECYCLE_SLOT_W = 44;
     static constexpr int RECYCLE_SLOT_H = 40;
@@ -346,10 +352,16 @@ private:
     static constexpr int RECYCLE_START_X = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - RECYCLE_TOTAL_W) / 2;
     static constexpr int BURNING_INTERVAL = 60;
 
-    // 左侧面板滚动（英雄信息/招募区/按钮/羁绊整体为一个可滚动列）
-    int m_leftPanelScroll = 0;      // 当前滚动偏移（像素）
-    int m_leftScrollMax = 0;        // 每帧渲染时更新的最大可滚动量
-    QRect leftPanelViewport() const;
+    // 三个独立滚动列表：英雄信息 / 招募区 / 右侧存活单位
+    int m_infoScroll = 0, m_infoScrollMax = 0;
+    int m_recruitScroll = 0, m_recruitScrollMax = 0;
+    int m_unitListScroll = 0, m_unitListScrollMax = 0;
+    QRect infoListViewport() const;
+    QRect recruitListViewport() const;
+    QRect unitListViewport() const;
+    void renderLeftButtons(QPainter& painter);   // 左栏底部固定按钮（Pop+/合成树/自定义）
+    void drawPanelScrollbar(QPainter& painter, const QRect& vp, int scroll, int max);
+    int m_unitListLegendBottom = 0;              // renderUI 每帧更新（存活列表视口顶）
 };
 
 #endif // SYNERA_H

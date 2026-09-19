@@ -618,7 +618,7 @@ void Synera::initGame()
 
     // 初始化装备掉落
     m_equipDrops.clear();
-    m_leftPanelScroll = 0;   // 左栏滚动复位
+    m_infoScroll = m_recruitScroll = m_unitListScroll = 0;   // 列表滚动复位
 
     // 自动化验证钩子：SYNERA_DEMO_UNITS=1 时在棋盘摆出全职业演示阵容
     // SYNERA_DEMO_BATTLE=2 时只摆英雄不摆敌方（配合无尽模式快速验证胜利结算）
@@ -1461,54 +1461,87 @@ void Synera::paintEvent(QPaintEvent *event)
     renderHealEffects(painter);
     renderGhostEffects(painter);
 
-    // 左侧面板：英雄信息/招募区/羁绊为一个整体滚动列（裁剪+平移）
+    // 左栏两个【独立】滚动列表：英雄信息 / 招募区；按钮与羁绊固定
     {
-        const QRect vp = leftPanelViewport();
+        const QRect vpInfo = infoListViewport();
         painter.save();
-        painter.setClipRect(vp);
-        painter.translate(0, -m_leftPanelScroll);
+        painter.setClipRect(vpInfo);
+        painter.translate(0, -m_infoScroll);
         renderHeroInfo(painter);
-        renderRecruitment(painter);
-        renderBonds(painter);
         painter.restore();
+        drawPanelScrollbar(painter, vpInfo, m_infoScroll, m_infoScrollMax);
 
-        // 滚动条指示（有可滚动内容时）
-        if (m_leftScrollMax > 0) {
-            int trackH = vp.height() - 4;
-            int thumbH = std::max(18, trackH * vp.height()
-                                          / std::max(1, vp.height() + m_leftScrollMax));
-            int thumbY = vp.top() + 2 + (trackH - thumbH) * m_leftPanelScroll
-                                                 / std::max(1, m_leftScrollMax);
-            painter.setBrush(QColor(50, 50, 65));
-            painter.setPen(Qt::NoPen);
-            painter.drawRect(QRect(vp.right() - 4, vp.top() + 2, 4, trackH));
-            painter.setBrush(QColor(120, 120, 145));
-            painter.drawRect(QRect(vp.right() - 4, thumbY, 4, thumbH));
-        }
+        const QRect vpRec = recruitListViewport();
+        painter.save();
+        painter.setClipRect(vpRec);
+        painter.translate(0, -m_recruitScroll);
+        renderRecruitment(painter);
+        painter.restore();
+        drawPanelScrollbar(painter, vpRec, m_recruitScroll, m_recruitScrollMax);
     }
+    renderLeftButtons(painter);   // 固定按钮区（不随列表滚动）
+    renderBonds(painter);         // 固定羁绊区
 
     renderEquipDrops(painter);
     renderDragGhost(painter);
     renderUI(painter);
 }
 
-QRect Synera::leftPanelViewport() const
+QRect Synera::infoListViewport() const
 {
-    return QRect(LEFT_PANEL_X - 2, 44, LEFT_PANEL_W + 6, height() - 44 - 8);
+    return QRect(LEFT_PANEL_X - 2, INFO_VIEW_Y, LEFT_PANEL_W + 6, INFO_VIEW_H);
+}
+
+QRect Synera::recruitListViewport() const
+{
+    return QRect(LEFT_PANEL_X - 2, RECRUIT_VIEW_Y, LEFT_PANEL_W + 6, RECRUIT_VIEW_H);
+}
+
+QRect Synera::unitListViewport() const
+{
+    // 顶部从 Legend 下方（renderUI 每帧更新）到帮助文字上方
+    const int top = m_unitListLegendBottom > 0 ? m_unitListLegendBottom + 20
+                                               : BOARD_OFFSET_Y + 300;
+    return QRect(BOARD_OFFSET_X + BOARD_PIXEL_SIZE + 24, top,
+                 width() - (BOARD_OFFSET_X + BOARD_PIXEL_SIZE + 24) - 10,
+                 height() - top - 76);
+}
+
+void Synera::drawPanelScrollbar(QPainter& painter, const QRect& vp, int scroll, int max)
+{
+    if (max <= 0) return;
+    const int trackH = vp.height() - 4;
+    const int thumbH = std::max(18, trackH * vp.height()
+                                      / std::max(1, vp.height() + max));
+    const int thumbY = vp.top() + 2 + (trackH - thumbH) * scroll / std::max(1, max);
+    painter.setBrush(QColor(50, 50, 65));
+    painter.setPen(Qt::NoPen);
+    painter.drawRect(QRect(vp.right() - 4, vp.top() + 2, 4, trackH));
+    painter.setBrush(QColor(120, 120, 145));
+    painter.drawRect(QRect(vp.right() - 4, thumbY, 4, thumbH));
 }
 
 void Synera::wheelEvent(QWheelEvent *event)
 {
     const int x = static_cast<int>(event->position().x());
-    if (x <= LEFT_PANEL_X + LEFT_PANEL_W + 8 && m_leftScrollMax > 0) {
-        const int step = event->angleDelta().y() > 0 ? -48 : 48;
-        int next = m_leftPanelScroll + step;
-        if (next < 0) next = 0;
-        if (next > m_leftScrollMax) next = m_leftScrollMax;
-        if (next != m_leftPanelScroll) {
-            m_leftPanelScroll = next;
-            update();
-        }
+    const int y = static_cast<int>(event->position().y());
+    const int dir = event->angleDelta().y() > 0 ? -1 : 1;
+
+    // 存活单位列表（右侧）
+    if (x >= unitListViewport().left() && m_unitListScrollMax > 0) {
+        m_unitListScroll = std::clamp(m_unitListScroll + dir * 40, 0, m_unitListScrollMax);
+        update();
+        event->accept();
+        return;
+    }
+    // 左栏两个列表
+    if (x <= LEFT_PANEL_X + LEFT_PANEL_W + 8) {
+        if (y < RECRUIT_VIEW_Y && m_infoScrollMax > 0)
+            m_infoScroll = std::clamp(m_infoScroll + dir * 48, 0, m_infoScrollMax);
+        else if (m_recruitScrollMax > 0)
+            m_recruitScroll = std::clamp(m_recruitScroll + dir * 48, 0, m_recruitScrollMax);
+        else return;
+        update();
         event->accept();
         return;
     }
@@ -1759,10 +1792,10 @@ void Synera::renderUnits(QPainter& painter)
                     QRect boxRect(rc.right() - maxBoxW - 2, boxStartY + ei * (boxH + boxGap), maxBoxW, boxH);
 
                     if (ew) {
-                        painter.setBrush(QColor(40, 40, 55));
+                        painter.setBrush(QColor(62, 62, 84));
                         painter.setPen(QPen(QColor(255, 210, 50), 1));
                         painter.drawRoundedRect(boxRect, 2, 2);
-                        const QPixmap& icon = equipIcon(ew->getIconFile(), 8);
+                        const QPixmap& icon = equipIcon(ew->getIconFile(), 10);
                         painter.drawPixmap(boxRect.center() - QPoint(icon.width() / 2, icon.height() / 2), icon);
                     } else {
                         painter.setBrush(QColor(28, 28, 38));
@@ -2216,6 +2249,12 @@ void Synera::renderHeroInfo(QPainter& painter)
         painter.setPen(QColor(255, 210, 50));
         painter.drawText(sx, sy + lh * 2, QString("Base: $%1").arg(baseCost));
     }
+
+    // 滚动范围（内容底部超出视口的部分）
+    const QRect vp = infoListViewport();
+    int contentBottom = INFO_PANEL_Y + 4 * (INFO_PANEL_H + INFO_SPACING) + 4;
+    m_infoScrollMax = std::max(0, contentBottom - vp.bottom());
+    if (m_infoScroll > m_infoScrollMax) m_infoScroll = m_infoScrollMax;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2298,8 +2337,22 @@ void Synera::renderRecruitment(QPainter& painter)
         }
     }
 
-    // 人口上限升级按钮（招募区下方）
-    int popBtnY = RECRUIT_START_Y + 5 * (RECRUIT_SLOT_H + RECRUIT_SPACING) + 8;
+    // 滚动范围
+    {
+        const QRect vp = recruitListViewport();
+        int contentBottom = RECRUIT_START_Y + 5 * (RECRUIT_SLOT_H + RECRUIT_SPACING) + 4;
+        m_recruitScrollMax = std::max(0, contentBottom - vp.bottom());
+        if (m_recruitScroll > m_recruitScrollMax) m_recruitScroll = m_recruitScrollMax;
+    }
+}
+
+// 左栏底部固定按钮：Pop+ / 装备合成树 / 自定义难度（不随列表滚动）
+void Synera::renderLeftButtons(QPainter& painter)
+{
+    if (m_phase != GamePhase::Preparation) return;
+
+    // 人口上限升级按钮
+    int popBtnY = LEFT_BTN_Y;
     int popCost = 100 * (m_populationCap - 4);
     QRect popBtnRect(LEFT_PANEL_X, popBtnY, 72, 22);
     m_popUpgradeButtonRect = popBtnRect;
@@ -2436,10 +2489,10 @@ void Synera::renderRecycleSlots(QPainter& painter)
 
                     QRect eqBox(rc.right() - maxEqBoxW - 2, eqBoxStartY + ei * (eqBoxH + eqBoxGap), maxEqBoxW, eqBoxH);
                     if (ew) {
-                        painter.setBrush(QColor(40, 40, 55));
+                        painter.setBrush(QColor(62, 62, 84));
                         painter.setPen(QPen(QColor(255, 210, 50), 1));
                         painter.drawRoundedRect(eqBox, 1, 1);
-                        const QPixmap& icon = equipIcon(ew->getIconFile(), 7);
+                        const QPixmap& icon = equipIcon(ew->getIconFile(), 9);
                         painter.drawPixmap(eqBox.center() - QPoint(icon.width() / 2, icon.height() / 2), icon);
                     } else {
                         painter.setBrush(QColor(28, 28, 38));
@@ -2512,7 +2565,7 @@ void Synera::renderEquipDrops(QPainter& painter)
             painter.setPen(QPen(QColor(255, 180, 50), 1));
             painter.drawRoundedRect(rc, 3, 3);
 
-            const QPixmap& icon = equipIcon(m_equipDrops[i]->getIconFile(), 18);
+            const QPixmap& icon = equipIcon(m_equipDrops[i]->getIconFile(), 26);
             painter.drawPixmap(rc.center() - QPoint(icon.width() / 2, icon.height() / 2), icon);
         } else {
             // 空槽
@@ -2661,7 +2714,7 @@ void Synera::renderDragGhost(QPainter& painter)
         painter.setPen(QPen(QColor(255, 210, 50), 2));
         painter.drawRoundedRect(gearRect, 4, 4);
 
-        const QPixmap& icon = equipIcon(m_draggedWeapon->getIconFile(), 18);
+        const QPixmap& icon = equipIcon(m_draggedWeapon->getIconFile(), 26);
         painter.drawPixmap(gearRect.center().x() - icon.width() / 2,
                            gearRect.top() + 2, icon);
 
@@ -2834,30 +2887,96 @@ void Synera::renderUI(QPainter& painter)
         painter.drawText(textX + 8, legendY + 20 + i * 18, legend[i].label);
     }
 
-    // ── 存活单位列表 ──
-    int unitListY = legendY + 20 + 8 * 18 + 20;
+    // ── 存活单位列表（滚动：立绘图块 + 名字坐标 + HP/法力条）──
+    m_unitListLegendBottom = legendY + 20 + 8 * 18 + 16;
     painter.setPen(QColor(190, 190, 210));
     QFont listTitleFont;
     listTitleFont.setPixelSize(11);
     listTitleFont.setBold(true);
     painter.setFont(listTitleFont);
-    painter.drawText(textX, unitListY, "Alive Units:");
+    painter.drawText(textX, m_unitListLegendBottom + 14, "Alive Units");
 
-    unitListY += 22;
-    QFont listFont;
-    listFont.setPixelSize(9);
-    painter.setFont(listFont);
-    for (auto& u : m_units) {
-        if (u->isDisappeared() || u->isDead()) continue;
-        bool isH = isHeroSide(u.get());
-        painter.setPen(isH ? QColor(100, 170, 255) : QColor(240, 100, 100));
-        QString info = QString("%1  HP:%2/%3  MP:%4/%5  (%6,%7)")
-            .arg(QString::fromStdString(u->getName()))
-            .arg(u->getHp()).arg(u->getMaxHp())
-            .arg(u->getMana()).arg(u->getMaxMana())
-            .arg(u->getPosition().x).arg(u->getPosition().y);
-        painter.drawText(textX + 8, unitListY, info);
-        unitListY += 16;
+    {
+        const QRect vp = unitListViewport();
+        painter.save();
+        painter.setClipRect(vp);
+        painter.translate(0, -m_unitListScroll);
+
+        // 按棋盘顺序收集（先玩家后敌方，行内按 x），展示稳定不闪烁
+        struct RowData { Unit* u; bool isH; };
+        std::vector<RowData> rows;
+        for (int y = Board::SIZE - 1; y >= Board::SIZE / 2; --y)
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (u && !u->isDead() && !u->isDisappeared() && isHeroSide(u))
+                    rows.push_back({u, true});
+            }
+        for (int y = 0; y < Board::SIZE / 2; ++y)
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (u && !u->isDead() && !u->isDisappeared() && !isHeroSide(u))
+                    rows.push_back({u, false});
+            }
+
+        QFont rowFont;
+        rowFont.setPixelSize(9);
+        rowFont.setBold(true);
+        painter.setFont(rowFont);
+        const int rowH = 26;
+        int contentBottom = vp.top();
+        for (size_t i = 0; i < rows.size(); ++i) {
+            Unit* u = rows[i].u;
+            const bool isH = rows[i].isH;
+            const int ry = vp.top() + (int)i * rowH;
+            contentBottom = ry + rowH;
+
+            // 斑马纹
+            if (i % 2 == 0)
+                painter.fillRect(QRect(vp.left(), ry, vp.width(), rowH - 2), QColor(30, 30, 42));
+
+            // 立绘图块
+            drawUnitChip(painter, QRect(vp.left() + 2, ry + 2, 22, 22),
+                         u->getType(), isH, 3);
+
+            // 名字 + 坐标
+            painter.setPen(isH ? QColor(140, 190, 255) : QColor(255, 140, 120));
+            painter.drawText(QRect(vp.left() + 28, ry, 92, 12),
+                             Qt::AlignVCenter, QString::fromStdString(u->getName()));
+            painter.setPen(QColor(140, 140, 160));
+            QFont tinyFont;
+            tinyFont.setPixelSize(8);
+            painter.setFont(tinyFont);
+            painter.drawText(QRect(vp.left() + 28, ry + 12, 92, 10),
+                             Qt::AlignVCenter,
+                             QString("(%1,%2) %3%4").arg(u->getPosition().x)
+                                .arg(u->getPosition().y)
+                                .arg(u->isBurning() ? QString::fromUtf8("[燃]") : QString())
+                                .arg(u->isClone() ? QString::fromUtf8("[影]") : QString()));
+
+            // HP / 法力 双条
+            const int barX = vp.left() + 124;
+            const int barW = vp.width() - 128;
+            double hpR = (double)u->getHp() / std::max(1, u->getMaxHp());
+            painter.setBrush(QColor(30, 30, 30));
+            painter.setPen(Qt::NoPen);
+            painter.drawRect(QRect(barX, ry + 4, barW, 7));
+            painter.setBrush(hpR > 0.5 ? QColor(80, 210, 80)
+                            : hpR > 0.25 ? QColor(210, 190, 30) : QColor(210, 55, 55));
+            painter.drawRect(QRect(barX, ry + 4, (int)(barW * hpR), 7));
+            int manaMax = u->getMaxMana();
+            double mpR = manaMax > 0 ? std::min(1.0, (double)u->getMana() / manaMax) : 0;
+            painter.setBrush(QColor(15, 15, 35));
+            painter.drawRect(QRect(barX, ry + 13, barW, 5));
+            painter.setBrush(QColor(50, 120, 240));
+            painter.drawRect(QRect(barX, ry + 13, (int)(barW * mpR), 5));
+
+            painter.setFont(rowFont);
+        }
+
+        painter.restore();
+        m_unitListScrollMax = std::max(0, contentBottom + 4 - vp.bottom());
+        if (m_unitListScroll > m_unitListScrollMax) m_unitListScroll = m_unitListScrollMax;
+        drawPanelScrollbar(painter, vp, m_unitListScroll, m_unitListScrollMax);
     }
 
     // ── 关卡失败覆盖文字 ──
@@ -2873,8 +2992,8 @@ void Synera::renderUI(QPainter& painter)
         painter.drawText(overlayRect, Qt::AlignCenter, "Level Failed!");
     }
 
-    // ── 帮助 ──
-    int helpY = unitListY + 16;
+    // ── 帮助（固定底部）──
+    int helpY = height() - 64;
     painter.setPen(QColor(140, 140, 160));
     QFont helpFont;
     helpFont.setPixelSize(10);
@@ -2932,9 +3051,10 @@ void Synera::mousePressEvent(QMouseEvent *event)
     if (m_gameOver) return;
     QPoint pos = event->pos();
 
-    // 左栏命中补偿：面板内容按滚动平移绘制，点击坐标需加上滚动量
-    const bool inLeftPanel = pos.x() <= LEFT_PANEL_X + LEFT_PANEL_W + 6;
-    const QPoint hitPos = inLeftPanel ? QPoint(pos.x(), pos.y() + m_leftPanelScroll) : pos;
+    // 招募列表内容按滚动平移绘制：命中检测补偿该列表的滚动量
+    const bool inRecruitList = pos.x() <= LEFT_PANEL_X + LEFT_PANEL_W + 6
+                               && pos.y() >= RECRUIT_VIEW_Y;
+    const QPoint hitPos = inRecruitList ? QPoint(pos.x(), pos.y() + m_recruitScroll) : pos;
 
     if (m_phase == GamePhase::Preparation) {
         // 开始战斗按钮
@@ -4276,11 +4396,6 @@ void Synera::renderBonds(QPainter& painter)
         painter.drawText(bondX + boxSize + 44, by + 8, bondData[i].desc);
     }
 
-    // 更新左栏滚动范围（内容底部超出视口底部的部分）
-    const QRect vp = leftPanelViewport();
-    int contentBottom = bondStartY + 5 * 17 + 6;
-    m_leftScrollMax = std::max(0, contentBottom - vp.bottom());
-    if (m_leftPanelScroll > m_leftScrollMax) m_leftPanelScroll = m_leftScrollMax;
 }
 
 // ═══════════════════════════════════════════════════════════════
