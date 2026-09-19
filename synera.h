@@ -89,6 +89,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private slots:
     void gameLoop();
@@ -331,11 +332,11 @@ private:
     static constexpr int LEFT_PANEL_X = 8;
     static constexpr int LEFT_PANEL_W = 124;
     static constexpr int INFO_PANEL_Y = 76;
-    static constexpr int INFO_PANEL_H = 48;
-    static constexpr int INFO_SPACING = 4;
-    static constexpr int RECRUIT_START_Y = 318;
-    static constexpr int RECRUIT_SLOT_H = 36;
-    static constexpr int RECRUIT_SPACING = 4;
+    static constexpr int INFO_PANEL_H = 64;     // 加高：立绘 26px + 三行数值不叠压
+    static constexpr int INFO_SPACING = 6;
+    static constexpr int RECRUIT_START_Y = 390;
+    static constexpr int RECRUIT_SLOT_H = 46;   // 加高：立绘 30px + 名称价格分行不叠压
+    static constexpr int RECRUIT_SPACING = 6;
     static constexpr int RECYCLE_Y = BOARD_OFFSET_Y + BOARD_PIXEL_SIZE + 16;
     static constexpr int RECYCLE_SLOT_W = 44;
     static constexpr int RECYCLE_SLOT_H = 40;
@@ -344,6 +345,11 @@ private:
     static constexpr int RECYCLE_TOTAL_W = 8 * RECYCLE_SLOT_W + 7 * RECYCLE_SPACING;
     static constexpr int RECYCLE_START_X = BOARD_OFFSET_X + (BOARD_PIXEL_SIZE - RECYCLE_TOTAL_W) / 2;
     static constexpr int BURNING_INTERVAL = 60;
+
+    // 左侧面板滚动（英雄信息/招募区/按钮/羁绊整体为一个可滚动列）
+    int m_leftPanelScroll = 0;      // 当前滚动偏移（像素）
+    int m_leftScrollMax = 0;        // 每帧渲染时更新的最大可滚动量
+    QRect leftPanelViewport() const;
 };
 
 #endif // SYNERA_H
