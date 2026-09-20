@@ -39,8 +39,10 @@ int Unit::attack(Unit& target)
     double thorns = target.getEquipThornsReflect();
     if (thorns > 0.0 && dealt > 0) {
         int reflectDmg = static_cast<int>(dealt * thorns);
-        if (reflectDmg > 0)
+        if (reflectDmg > 0) {
             takeDamage(reflectDmg);
+            target.addStatDealt(reflectDmg);   // 反伤输出计入防守方
+        }
     }
 
     // 目标复活石触发则不死

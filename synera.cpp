@@ -485,9 +485,12 @@ void Synera::showBattleStats(bool playerWon)
 {
     // 收集参战英雄的统计快照（此时 m_units 尚未清理，阵亡英雄也在内）
     std::vector<PostBattleStatsWindow::StatRow> rows;
+    // PvP：主机看 Hero 侧（自己），客户端看 Enemy 侧（自己）
+    const bool wantHeroSide = !m_pvpBattle || m_pvpIsHost;
     for (const auto& up : m_units) {
         Unit* u = up.get();
-        if (!u || !isHeroSide(u)) continue;
+        if (!u || isHeroSide(u) != wantHeroSide) continue;
+        if (u->isClone()) continue;   // 分身不单独显示（混入本体行会误导）
         PostBattleStatsWindow::StatRow r;
         r.name = QString::fromStdString(u->getName());
         r.type = static_cast<int>(u->getType());
@@ -3822,7 +3825,11 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
     (caster->*skill)(m_board, alive);
 
     for (auto& kv : hpBefore) {
-        if (kv.first->hasReviveTriggered()) continue; // 复活触发，跳过死亡判定
+        if (kv.first->hasReviveTriggered()) {
+            // 复活触发：伤害按快照 HP 计入施法者输出（复活回满不算治疗）
+            caster->addStatDealt(kv.second);
+            continue;
+        }
         // 击杀的单位也要计入伤害统计（用快照 HP 而非当前 0）
         const bool killed = kv.first->isDead() || kv.first->isDisappeared();
         int diff = killed ? -kv.second : (kv.first->getHp() - kv.second);
@@ -3936,9 +3943,10 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
             bool tEnemy = isEnemySide(target);
             m_pendingDamageEvents[assassin].push_back(-assassin->getHp());
             m_pendingDamageEvents[target].push_back(-target->getHp());
-            // 互杀：绕过防御直接清零 HP（否则带甲刺客残血存活但被移出棋盘）
-            assassin->setHp(0);
-            target->setHp(0);
+            // 互杀：takeDamage(HP + 防御) → effectiveDmg = HP → 恰好致死
+            // 统计正确计入承伤/复活石正常触发
+            assassin->takeDamage(assassin->getHp() + assassin->getEquipDefense());
+            target->takeDamage(target->getHp() + target->getEquipDefense());
             assassin->resetMana();
             target->resetMana();
             if (!assassin->hasReviveTriggered()) {
