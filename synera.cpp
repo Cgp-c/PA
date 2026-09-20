@@ -1331,6 +1331,11 @@ void Synera::endLevel(bool playerWon)
 
         // 恢复战前装备掉落区（回放期间 tryEquipDrop 可能添加了新装备）
         m_equipDrops = m_preReplayState.equipDrops;   // 直接恢复战前指针列表
+        m_slashEffects.clear();
+        m_projectileEffects.clear();
+        m_healEffects.clear();
+        m_ghostEffects.clear();
+        m_moveTrailEffects.clear();
 
         m_showLevelLoss = false;
         m_phase = GamePhase::Preparation;
@@ -1598,6 +1603,7 @@ void Synera::saveGame(const QString& filePath)
             bu["star"] = u->getStarLevel();
             bu["hp"] = u->getHp();
             bu["maxHp"] = u->getMaxHp();
+            bu["baseMaxHp"] = u->getBaseMaxHp();
             bu["mana"] = u->getMana();
             bu["atk"] = u->getAttackDamage();   // 终极角色动态攻击力
             bu["burning"] = u->getBurningTurns();
@@ -1630,6 +1636,7 @@ void Synera::saveGame(const QString& filePath)
         ru["star"] = u->getStarLevel();
         ru["hp"] = u->getHp();
         ru["maxHp"] = u->getMaxHp();
+        ru["baseMaxHp"] = u->getBaseMaxHp();
         ru["mana"] = u->getMana();
         ru["atk"] = u->getAttackDamage();
         ru["burning"] = u->getBurningTurns();
@@ -4391,7 +4398,7 @@ void Synera::processCombatFrame()
                     // 反伤击杀：攻击者被反弹致死时，防守方获得击杀奖励
                     if (u->isDead() && !u->hasReviveTriggered()) {
                         target->addStatKill();  // 防守方击杀
-                        if (isEnemySide(u) && !m_replayMode) {
+                        if (isEnemySide(u)) {
                             m_pendingGold += enemyGoldValue(u);
                             tryEquipDrop();
                         }
