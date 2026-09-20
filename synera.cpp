@@ -625,6 +625,7 @@ void Synera::initGame()
     m_projectileEffects.clear();
     m_healEffects.clear();
     m_ghostEffects.clear();
+    m_moveTrailEffects.clear();
     m_pendingDamageEvents.clear();
 
     // 初始化英雄信息面板：全部可招募职业（先清空防重复追加）
@@ -1339,6 +1340,7 @@ void Synera::endLevel(bool playerWon)
     m_projectileEffects.clear();
     m_healEffects.clear();
     m_ghostEffects.clear();
+    m_moveTrailEffects.clear();
     m_pendingDamageEvents.clear();
 
     // 清理所有刺客分身并重置羁绊效果
@@ -1803,6 +1805,7 @@ void Synera::paintEvent(QPaintEvent *event)
     renderProjectiles(painter);
     renderHealEffects(painter);
     renderGhostEffects(painter);
+    renderMoveTrails(painter);
 
     // 左栏两个【独立】滚动列表：英雄信息 / 招募区；按钮与羁绊固定
     {
@@ -2396,12 +2399,23 @@ void Synera::renderProjectiles(QPainter& painter)
 {
     const double FLIGHT_END = 0.78;   // 前 78% 帧飞行，之后爆裂
 
+    // 弹道配色：按 tint 索引（0火球 1箭矢 2毒弹 3骑士光弹 4终极金弹）
+    struct PC { QColor core, mid, outer; };
+    const PC pcs[5] = {
+        {QColor(255,255,200), QColor(255,200,60),  QColor(255,90,20)},   // 0 火球
+        {QColor(255,250,220), QColor(240,210,120), QColor(190,160,70)},  // 1 箭矢
+        {QColor(230,255,220), QColor(140,230,90),  QColor(50,160,40)},   // 2 毒弹
+        {QColor(235,245,255), QColor(150,190,255), QColor(80,120,200)},  // 3 骑士
+        {QColor(255,250,220), QColor(255,220,90),  QColor(200,160,30)},  // 4 终极
+    };
+
     for (const ProjectileEffect& e : m_projectileEffects) {
         int elapsed = m_frameCounter - e.startFrame;
         if (elapsed < 0 || e.duration <= 0) continue;
         double progress = (double)elapsed / e.duration;
         if (progress >= 1.0) continue;
 
+        const PC& pc = pcs[e.tint % 5];
         QPointF from = cellRect(e.fromX, e.fromY).center();
         QPointF to   = cellRect(e.toX, e.toY).center();
 
@@ -2427,15 +2441,15 @@ void Synera::renderProjectiles(QPainter& painter)
                            uu * uu * from.y() + 2 * uu * tt * ctrl.y() + tt * tt * to.y());
                 int tr = 4 - i;
                 painter.setPen(Qt::NoPen);
-                painter.setBrush(QColor(255, 120, 40, 120 - i * 35));
+                painter.setBrush(QColor(pc.outer.red(), pc.outer.green(), pc.outer.blue(), 120 - i * 35));
                 painter.drawEllipse(tp, tr, tr);
             }
 
             // 火球本体：外焰红 + 内核亮黄白
             QRadialGradient grad(pos, 6.0);
-            grad.setColorAt(0.0, QColor(255, 255, 200, 255));
-            grad.setColorAt(0.45, QColor(255, 200, 60, 235));
-            grad.setColorAt(1.0, QColor(255, 90, 20, 120));
+            grad.setColorAt(0.0, QColor(pc.core.red(), pc.core.green(), pc.core.blue(), 255));
+            grad.setColorAt(0.45, QColor(pc.mid.red(), pc.mid.green(), pc.mid.blue(), 235));
+            grad.setColorAt(1.0, QColor(pc.outer.red(), pc.outer.green(), pc.outer.blue(), 120));
             painter.setPen(Qt::NoPen);
             painter.setBrush(grad);
             painter.drawEllipse(pos, 6.0, 6.0);
@@ -2444,7 +2458,8 @@ void Synera::renderProjectiles(QPainter& painter)
             double t = (progress - FLIGHT_END) / (1.0 - FLIGHT_END);
             double alpha = 1.0 - t;
 
-            painter.setPen(QPen(QColor(255, 170, 50, (int)(200 * alpha)), 3));
+            painter.setPen(QPen(QColor(pc.mid.red(), pc.mid.green(), pc.mid.blue(),
+                                       (int)(200 * alpha)), 3));
             painter.setBrush(Qt::NoBrush);
             painter.drawEllipse(to, 4.0 + 12.0 * t, 4.0 + 12.0 * t);
 
@@ -2562,6 +2577,52 @@ void Synera::renderGhostEffects(QPainter& painter)
         QPen dashPen(QColor(220, 200, 255), 1, Qt::DashLine);
         painter.setPen(dashPen);
         painter.drawLine(from, to);
+
+        painter.restore();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 移动轨迹特效（旧位置的渐隐职业色粒子）
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::renderMoveTrails(QPainter& painter)
+{
+    for (const MoveTrailEffect& e : m_moveTrailEffects) {
+        int elapsed = m_frameCounter - e.startFrame;
+        if (elapsed < 0 || e.duration <= 0) continue;
+        double p = (double)elapsed / e.duration;
+        if (p >= 1.0) continue;
+
+        QRect rc = cellRect(e.x, e.y);
+        double alpha = (1.0 - p) * 0.4;   // 最大约 40% 不透明度，快速淡出
+        QColor c = typeFillColor(static_cast<UnitType>(e.type), e.isHero);
+
+        painter.save();
+        painter.setOpacity(alpha);
+
+        // 渐隐的职业色圆点（从格子中心向四周扩散）
+        double r = 4.0 + 5.0 * p;
+        QPointF center(rc.center().x(), rc.center().y());
+        QRadialGradient grad(center, r + 2);
+        grad.setColorAt(0.0, QColor(c.red(), c.green(), c.blue(), 180));
+        grad.setColorAt(0.6, QColor(c.red(), c.green(), c.blue(), 80));
+        grad.setColorAt(1.0, QColor(c.red(), c.green(), c.blue(), 0));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(grad);
+        painter.drawEllipse(center, r + 2, r + 2);
+
+        // 2 个小粒子向移动反方向飞散
+        painter.setOpacity(alpha * 0.7);
+        for (int i = 0; i < 2; ++i) {
+            double theta = 2.0 + i * 2.5;   // 固定扇形角度
+            double dist = 4.0 + 8.0 * p;
+            painter.setBrush(QColor(c.red(), c.green(), c.blue(), 150));
+            painter.drawEllipse(
+                QPointF(center.x() + std::cos(theta) * dist,
+                        center.y() + std::sin(theta) * dist * 0.5),
+                2.0, 2.0);
+        }
 
         painter.restore();
     }
@@ -4050,6 +4111,10 @@ void Synera::processCombatFrame()
         std::remove_if(m_ghostEffects.begin(), m_ghostEffects.end(),
             [this](const GhostEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
         m_ghostEffects.end());
+    m_moveTrailEffects.erase(
+        std::remove_if(m_moveTrailEffects.begin(), m_moveTrailEffects.end(),
+            [this](const MoveTrailEffect& e) { return m_frameCounter >= e.startFrame + e.duration; }),
+        m_moveTrailEffects.end());
 
     struct Move { Unit* unit; Position to; };
     std::vector<Move> moves;
@@ -4264,9 +4329,40 @@ void Synera::processCombatFrame()
                         }
                     } else if (u->getType() == UnitType::Mage) {
                         m_projectileEffects.push_back({
-                            pos.x, pos.y, tp.x, tp.y,
+                            pos.x, pos.y, tp.x, tp.y, 0,   // tint=0 火球
                             m_frameCounter,
-                            18 + 6 * manhattanDist(pos, tp)  // 距离越远飞得越久
+                            18 + 6 * manhattanDist(pos, tp)
+                        });
+                    } else if (u->getType() == UnitType::Knight) {
+                        if (atkRange >= 2) {
+                            m_projectileEffects.push_back({
+                                pos.x, pos.y, tp.x, tp.y, 3,   // tint=3 蓝白光弹
+                                m_frameCounter,
+                                14 + 4 * manhattanDist(pos, tp)
+                            });
+                        } else {
+                            m_slashEffects.push_back({
+                                pos.x, pos.y, tp.x, tp.y,
+                                3, m_frameCounter, SLASH_EFFECT_FRAMES
+                            });
+                        }
+                    } else if (u->getType() == UnitType::Hunter) {
+                        m_projectileEffects.push_back({
+                            pos.x, pos.y, tp.x, tp.y, 1,   // tint=1 箭矢
+                            m_frameCounter,
+                            14 + 5 * manhattanDist(pos, tp)
+                        });
+                    } else if (u->getType() == UnitType::Shaman) {
+                        m_projectileEffects.push_back({
+                            pos.x, pos.y, tp.x, tp.y, 2,   // tint=2 毒弹
+                            m_frameCounter,
+                            18 + 6 * manhattanDist(pos, tp)
+                        });
+                    } else if (u->getType() == UnitType::Ultimate) {
+                        m_projectileEffects.push_back({
+                            pos.x, pos.y, tp.x, tp.y, 4,   // tint=4 金色巨弹
+                            m_frameCounter,
+                            16 + 5 * manhattanDist(pos, tp)
                         });
                     }
 
@@ -4311,12 +4407,21 @@ void Synera::processCombatFrame()
         }
     }
 
-    // 执行移动
+    // 执行移动（附带轨迹粒子特效）
     for (auto& m : moves) {
         if (m_board.isOccupied(m.to.x, m.to.y)) continue;
         Position old = m.unit->getPosition();
         m_board.removeUnit(old.x, old.y);
         m_board.placeUnit(m.unit, m.to.x, m.to.y);
+
+        // 移动轨迹：旧位置留下按职业着色的渐隐粒子
+        m_moveTrailEffects.push_back({
+            old.x, old.y,
+            static_cast<int>(m.unit->getType()),
+            isHeroSide(m.unit),
+            m_frameCounter,
+            MOVE_TRAIL_FRAMES
+        });
     }
 
     // 刷新收集到的全部单位（含移动后新位置）
