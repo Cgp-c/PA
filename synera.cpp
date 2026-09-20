@@ -190,8 +190,15 @@ void Synera::showStartScreen()
 void Synera::startPvpFromLobby(bool isHost)
 {
     m_pvpIsHost = isHost;
+    // 防御：若已有旧连接，先断开信号再覆盖（防止信号串台）
+    if (m_pvpSocket) {
+        m_pvpSocket->disconnect(this);
+        m_pvpSocket->abort();
+        m_pvpSocket->deleteLater();
+    }
     m_pvpSocket = m_pvpLobby->takeSocket();
     if (!m_pvpSocket) return;
+    m_pvpRxBuffer.clear();   // 新连接清空接收缓冲
     connect(m_pvpSocket, &QTcpSocket::readyRead, this, &Synera::onPvpReadyRead);
     connect(m_pvpSocket, &QTcpSocket::disconnected, this, &Synera::onPvpDisconnected);
     m_pvpConnected = true;
@@ -234,11 +241,14 @@ void Synera::closePvpConnection()
     m_pvpConnected = false;
     m_pvpBattle = false;
     m_pvpLocalReady = false;
+    m_pvpRxBuffer.clear();   // 清空残帧（防旧会话半条消息污染新会话首条解析）
 }
 
 void Synera::sendPvpJson(const QJsonObject& obj)
 {
-    if (!m_pvpSocket || m_pvpSocket->state() != QAbstractSocket::ConnectedState) return;
+    if (!m_pvpSocket || m_pvpSocket->state() != QAbstractSocket::ConnectedState) {
+        return;
+    }
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     data.append('\n');   // 换行分帧
     m_pvpSocket->write(data);
@@ -246,7 +256,6 @@ void Synera::sendPvpJson(const QJsonObject& obj)
 
 void Synera::pvpReady()
 {
-    if (m_gameMode != GameMode::PvP || !m_pvpConnected) return;
     if (m_phase != GamePhase::Preparation || m_gameOver) return;
     if (!anyHeroOnPlayerHalf()) return;
     if (m_pvpLocalReady) return;
@@ -387,6 +396,7 @@ void Synera::onPvpReadyRead()
         const QString type = msg["type"].toString();
 
         if (type == "lineup") {
+            if (m_pvpBattle) continue;
             m_pvpRemoteLineup = msg;
             if (m_pvpIsHost && m_pvpLocalReady) {
                 unsigned seed = static_cast<unsigned>(std::rand());
@@ -397,7 +407,7 @@ void Synera::onPvpReadyRead()
                 startPvpBattle(seed);
             }
         } else if (type == "start") {
-            if (!m_pvpIsHost)   // 只有客户端会收到 START
+            if (!m_pvpIsHost && m_phase == GamePhase::Preparation && !m_pvpBattle)
                 startPvpBattle(static_cast<unsigned>(msg["seed"].toDouble()));
         } else if (type == "result") {
             // 主机权威结果备案（自动化对拍用；正常应与本地锁步结果一致）
@@ -641,6 +651,8 @@ void Synera::initGame()
 
     // 初始化装备掉落
     m_equipDrops.clear();
+    m_replayMode = false;            // 回放状态复位（R 键中断回放后防误结算）
+    m_preReplayState = ReplayData(); // 清空陈旧快照（含已析构的 Weapon* 指针）
     m_infoScroll = m_recruitScroll = m_unitListScroll = m_bondScroll = 0;   // 列表滚动复位
 
     // 自动化验证钩子：SYNERA_DEMO_UNITS=1 时在棋盘摆出全职业演示阵容

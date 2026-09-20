@@ -81,6 +81,12 @@ void PvpLobbyWindow::setStatus(const QString& text, const QColor& color)
 void PvpLobbyWindow::onCreateRoom()
 {
     if (m_socket) return;
+    // 清理旧 server（同进程二次建房：释放端口 + 防止孤儿监听）
+    if (m_server) {
+        m_server->close();
+        m_server->deleteLater();
+        m_server = nullptr;
+    }
     m_isHost = true;
     m_server = new QTcpServer(this);
     if (!m_server->listen(QHostAddress::AnyIPv4, PVP_PORT)) {
@@ -133,6 +139,8 @@ void PvpLobbyWindow::onHostNewConnection()
 {
     if (m_socket || !m_server) return;
     m_socket = m_server->nextPendingConnection();
+    // 服务器保持监听（安全关闭由析构/closePvpConnection处理；
+    // 此处立即关闭会影响已建立的socket连接）
     onSocketConnected();
 }
 
