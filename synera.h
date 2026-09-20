@@ -393,6 +393,8 @@ private:
     int m_infoScroll = 0, m_infoScrollMax = 0;
     int m_recruitScroll = 0, m_recruitScrollMax = 0;
     int m_unitListScroll = 0, m_unitListScrollMax = 0;
+    int m_bondScroll = 0, m_bondScrollMax = 0;      // 羁绊面板滚动
+    QRect m_bondViewport;                            // 每帧更新（按钮位置动态）
     QRect infoListViewport() const;
     QRect recruitListViewport() const;
     QRect unitListViewport() const;

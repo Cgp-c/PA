@@ -640,7 +640,7 @@ void Synera::initGame()
 
     // 初始化装备掉落
     m_equipDrops.clear();
-    m_infoScroll = m_recruitScroll = m_unitListScroll = 0;   // 列表滚动复位
+    m_infoScroll = m_recruitScroll = m_unitListScroll = m_bondScroll = 0;   // 列表滚动复位
 
     // 自动化验证钩子：SYNERA_DEMO_UNITS=1 时在棋盘摆出全职业演示阵容
     // SYNERA_DEMO_BATTLE=2 时只摆英雄不摆敌方（配合无尽模式快速验证胜利结算）
@@ -1913,8 +1913,10 @@ void Synera::wheelEvent(QWheelEvent *event)
     if (x <= LEFT_PANEL_X + LEFT_PANEL_W + 8) {
         if (y < RECRUIT_VIEW_Y && m_infoScrollMax > 0)
             m_infoScroll = std::clamp(m_infoScroll + dir * 48, 0, m_infoScrollMax);
-        else if (m_recruitScrollMax > 0)
+        else if (y < RECRUIT_VIEW_Y + RECRUIT_VIEW_H && m_recruitScrollMax > 0)
             m_recruitScroll = std::clamp(m_recruitScroll + dir * 48, 0, m_recruitScrollMax);
+        else if (m_bondScrollMax > 0)
+            m_bondScroll = std::clamp(m_bondScroll + dir * 34, 0, m_bondScrollMax);
         else return;
         update();
         event->accept();
@@ -4951,6 +4953,16 @@ void Synera::renderBonds(QPainter& painter)
         {"瘟疫蔓延", "2萨满:攻击+15"},
     };
 
+    // 滚动视口：从按钮下方到窗口底部
+    m_bondViewport = QRect(LEFT_PANEL_X - 2, bondStartY,
+                           LEFT_PANEL_W + 6, height() - bondStartY - 10);
+    const int rowH = 17;   // 恢复舒适行高
+    const int totalH = 8 * rowH;
+
+    painter.save();
+    painter.setClipRect(m_bondViewport);
+    painter.translate(0, -m_bondScroll);
+
     QFont nameFont;
     nameFont.setPixelSize(8);
     nameFont.setBold(true);
@@ -4958,9 +4970,9 @@ void Synera::renderBonds(QPainter& painter)
     descFont.setPixelSize(6);
 
     for (int i = 0; i < 8; ++i) {
-        int by = bondStartY + i * 13;   // 单行超紧凑排版，8 行共 104px
+        int by = bondStartY + i * rowH;
         int boxSize = 8;
-        QRect boxRect(bondX, by, boxSize, boxSize);
+        QRect boxRect(bondX, by + 2, boxSize, boxSize);
 
         // 羁绊激活指示框
         if (m_bondActive[i]) {
@@ -4983,6 +4995,12 @@ void Synera::renderBonds(QPainter& painter)
         painter.drawText(bondX + boxSize + 44, by + 8, bondData[i].desc);
     }
 
+    painter.restore();
+
+    // 滚动范围与滚动条
+    m_bondScrollMax = std::max(0, totalH - m_bondViewport.height() + 4);
+    if (m_bondScroll > m_bondScrollMax) m_bondScroll = m_bondScrollMax;
+    drawPanelScrollbar(painter, m_bondViewport, m_bondScroll, m_bondScrollMax);
 }
 
 // ═══════════════════════════════════════════════════════════════
