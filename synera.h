@@ -147,6 +147,7 @@ private:
         QString label;
         unsigned seed = 0;
         QJsonArray heroes, enemies, recycle;
+        std::vector<Weapon*> equipDrops;   // 战前掉落区快照（指针，回放后恢复）
     };
     ReplayData m_lastReplay;
     bool m_replayMode = false;
@@ -233,10 +234,10 @@ private:
     void checkBondsForSide(std::vector<Unit*>& alive, bool heroSide, bool* bondActive);
     void previewBonds();  // 准备阶段预览羁绊状态
     void spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive);
-    void removeAssassinClones();
+    void removeAssassinClones(bool heroSide = true);
     void applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<Unit*>& mages,
                          std::vector<Unit*>& supports, std::vector<Unit*>& assassins, std::vector<Unit*>& alive);
-    void revertBondEffect(int idx, std::vector<Unit*>& alive);
+    void revertBondEffect(int idx, std::vector<Unit*>& alive, bool heroSide = true);
 
     Unit* findUnitAtPixel(const QPoint& pixel) const;
     int   findRecruitSlotAt(const QPoint& pixel) const;
@@ -326,7 +327,6 @@ private:
     bool m_pvpLocalReady = false;
     QJsonObject m_pvpLocalLineup;    // 己方阵容快照（开战重建棋盘用）
     QJsonObject m_pvpRemoteLineup;   // 对方阵容快照
-    std::vector<std::unique_ptr<Weapon>> m_pvpWeapons;  // 联机重建单位的装备持有
     QByteArray m_pvpRxBuffer;
     int m_pvpScoreLocal = 0;
     int m_pvpScoreRemote = 0;

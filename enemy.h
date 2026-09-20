@@ -17,7 +17,7 @@ public:
 class WarriorEnemy : public Enemy {
 public:
     WarriorEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Warrior).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Warrior).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return statsOf(UnitType::Warrior).atk * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { warriorSkill(board, allUnits); }
 };
@@ -26,7 +26,7 @@ public:
 class MageEnemy : public Enemy {
 public:
     MageEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Mage).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Mage).range + getEquipBonusRange() + getBondRangeBonus(); }
 int getAttackDamage() const override { return statsOf(UnitType::Mage).atk * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { mageSkill(board, allUnits); }
 };
@@ -34,7 +34,7 @@ int getAttackDamage() const override { return statsOf(UnitType::Mage).atk * (m_s
 class SupportEnemy : public Enemy {
 public:
     SupportEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Support).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Support).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return 0; }
     int getHealAmount() const override { return static_cast<int>(statsOf(UnitType::Support).heal * (m_starLevel / 2 + 1) * getBondHealMult()); }
     bool canHeal() const override { return true; }
@@ -44,7 +44,7 @@ public:
 class AssassinEnemy : public Enemy {
 public:
     AssassinEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Assassin).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Assassin).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return statsOf(UnitType::Assassin).atk * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { assassinSkill(board, allUnits); }
 };
@@ -52,7 +52,7 @@ public:
 class BossEnemy : public Enemy {
 public:
     BossEnemy(int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Boss).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Boss).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return statsOf(UnitType::Boss).atk + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
     void useSkill2(Board& board, std::vector<Unit*>& allUnits) override;
@@ -63,7 +63,7 @@ public:
 class HunterEnemy : public Enemy {
 public:
     HunterEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Hunter).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Hunter).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return statsOf(UnitType::Hunter).atk * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { hunterSkill(board, allUnits); }
 };
@@ -71,7 +71,7 @@ public:
 class KnightEnemy : public Enemy {
 public:
     KnightEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Knight).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Knight).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return statsOf(UnitType::Knight).atk * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { knightSkill(board, allUnits); }
 };
@@ -79,7 +79,7 @@ public:
 class ShamanEnemy : public Enemy {
 public:
     ShamanEnemy(int starLevel = 0, int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Shaman).range + getBondRangeBonus(); }
+    int getAttackRange() const override { return statsOf(UnitType::Shaman).range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return statsOf(UnitType::Shaman).atk * (m_starLevel / 2 + 1) + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { shamanSkill(board, allUnits); }
 };
@@ -88,7 +88,7 @@ class UltimateEnemy : public Enemy {
 public:
     // atk 默认取数据表默认档（自定义难度直选时）
     explicit UltimateEnemy(int atk = ultimateStats().defaultAtk, int x = 0, int y = 0);
-    int getAttackRange() const override { return ultimateStats().range + getBondRangeBonus(); }
+    int getAttackRange() const override { return ultimateStats().range + getEquipBonusRange() + getBondRangeBonus(); }
     int getAttackDamage() const override { return m_ultimateAtk + getBondAtkBonus(); }
     void setDynamicAtk(int atk) { m_ultimateAtk = atk; }   // 回放/联机重建时恢复
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { ultimateSkill(board, allUnits); }

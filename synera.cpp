@@ -221,7 +221,6 @@ void Synera::resetPvpRound()
     m_pvpLocalReady = false;
     m_pvpLocalLineup = QJsonObject();
     m_pvpRemoteLineup = QJsonObject();
-    m_pvpWeapons.clear();       // 上一回合重建单位的装备随快照作废
 }
 
 void Synera::closePvpConnection()
@@ -347,7 +346,6 @@ void Synera::startPvpBattle(unsigned seed)
     //   主机阵容 = Hero 侧（原坐标，下方半场）
     //   客户端阵容 = 敌方侧（180° 镜像，上方半场）
     // 两台机器执行同一份重建代码 → 初始状态位相同；再配合同种子 → 锁步一致。
-    m_pvpWeapons.clear();
     // 修复悬挂：回收槽英雄仍在 m_units 里，clear 会销毁它们 → 先快照并置空槽位，
     // 重建后再恢复（恢复的单位重新进入 m_units，继续作为备战席存在）
     const QJsonArray recycleSnap = snapshotAndClearRecycle();
@@ -978,9 +976,9 @@ void Synera::startReplay()
     m_preReplayState = ReplayData();
     m_preReplayState.heroes = serializeBoardSide(true);
     m_preReplayState.recycle = serializeRecycle();
+    m_preReplayState.equipDrops = m_equipDrops;   // 快照掉落区（回放后恢复）
 
     // 清场重建录像双方（回收槽快照后置空防悬挂，回放结束再恢复）
-    m_pvpWeapons.clear();
     const QJsonArray recycleSnap = snapshotAndClearRecycle();
     m_units.clear();
     m_board.clear();
@@ -1324,13 +1322,15 @@ void Synera::endLevel(bool playerWon)
         showBattleStats(playerWon);
 
         // 清战斗单位 → 恢复战前棋盘英雄与回收槽
-        m_pvpWeapons.clear();
-        m_units.clear();
+            m_units.clear();
         m_board.clear();
         for (int i = 0; i < (int)m_recycleSlots.size(); ++i) m_recycleSlots[i] = nullptr;
         if (!m_preReplayState.heroes.isEmpty())
             placePvpLineup(QJsonObject({{"units", m_preReplayState.heroes}}), true, false);
         restoreRecycle(m_preReplayState.recycle);
+
+        // 恢复战前装备掉落区（回放期间 tryEquipDrop 可能添加了新装备）
+        m_equipDrops = m_preReplayState.equipDrops;   // 直接恢复战前指针列表
 
         m_showLevelLoss = false;
         m_phase = GamePhase::Preparation;
@@ -1350,7 +1350,8 @@ void Synera::endLevel(bool playerWon)
     m_pendingDamageEvents.clear();
 
     // 清理所有刺客分身并重置羁绊效果
-    removeAssassinClones();
+    removeAssassinClones(true);
+    removeAssassinClones(false);   // 战斗结束清双侧分身
     for (auto& u : m_units) {
         if (!u->isDead() && !u->isDisappeared())
             u->resetBondEffects();
@@ -1712,6 +1713,8 @@ void Synera::loadGame(const QString& filePath)
         if (wp) u->equip(wp);
         }
         // 装备恢复后再设置HP（防御装equip()给m_hp加bonus后，setHp覆写为存档值）
+        if (o.contains("baseMaxHp"))
+            u->setMaxHp(o["baseMaxHp"].toInt());
         int savedHp = o["hp"].toInt(-1);
         if (savedHp >= 0) u->setHp(std::min(savedHp, u->getMaxHp()));
         u->setMana(o["mana"].toInt(0));
@@ -2944,11 +2947,8 @@ void Synera::tryEquipDrop()
 {
     // 联机对战不掉落装备：随机数调用会破坏双端锁步一致性
     if (m_pvpBattle) return;
-    // 回放模式：仍然消耗 rand 保持 RNG 流一致，但不产生实际装备
-    if (m_replayMode) {
-        std::rand(); std::rand();   // 消耗与实际掉落相同的随机数
-        return;
-    }
+    // 回放模式：完全正常运行（含 rand 消耗与装备掉落），
+    // 战后由 endLevel 回放分支恢复快照撤销全部副作用
     // 去掉每关获取上限，仅限制掉落区容量
     if ((int)m_equipDrops.size() >= MAX_EQUIP_DROPS) return;
     int chance = 10 * m_currentLevel + 5; // 基础概率 +5%
@@ -3958,10 +3958,8 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
     for (Unit* eu : enemiesBefore) {
         if (eu->isDead() && !eu->hasReviveTriggered()) {
             caster->addStatKill();   // 战斗统计：技能击杀
-            if (!m_replayMode) {
-                m_pendingGold += enemyGoldValue(eu);
-                tryEquipDrop();
-            }
+            m_pendingGold += enemyGoldValue(eu);
+            tryEquipDrop();
         }
     }
 }
@@ -3987,7 +3985,7 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
         if (u->isBurning()) {
             u->tickBurning();
             if (u->isDead() && !u->hasReviveTriggered()) {
-                if (isEnemySide(u) && !m_replayMode) {
+                if (isEnemySide(u)) {
                     m_pendingGold += enemyGoldValue(u);
                     tryEquipDrop();
                 }
@@ -4383,7 +4381,7 @@ void Synera::processCombatFrame()
                     if (target->isDead() && !target->hasReviveTriggered()) {
                         u->addStatKill();       // 战斗统计：击杀
                         bool isEnemy = isEnemySide(target);
-                        if (isEnemy && !m_replayMode) {
+                        if (isEnemy) {
                             m_pendingGold += enemyGoldValue(target);
                             tryEquipDrop();
                         }
@@ -4749,7 +4747,7 @@ void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<
     }
 }
 
-void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
+void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive, bool heroSide)
 {
     switch (idx) {
     case 0: // 战斗不息（checkBondsForSide 已过滤阵营）
@@ -4768,8 +4766,8 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
             }
         }
         break;
-    case 3: // 暗夜幻影
-        removeAssassinClones();
+    case 3: // 暗夜幻影：删除该阵营的分身
+        removeAssassinClones(heroSide);
         break;
     case 4: // 全军出击
         for (Unit* u : alive) {
@@ -4849,7 +4847,7 @@ void Synera::checkBondsForSide(std::vector<Unit*>& alive, bool heroSide, bool* b
         if (newBond[i] && !bondActive[i]) {
             applyBondEffect(i, warriors, mages, supports, assassins, sideAlive);
         } else if (!newBond[i] && bondActive[i]) {
-            revertBondEffect(i, sideAlive);
+            revertBondEffect(i, sideAlive, heroSide);
         }
         bondActive[i] = newBond[i];
     }
@@ -4937,14 +4935,12 @@ void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vecto
     }
 }
 
-void Synera::removeAssassinClones()
+void Synera::removeAssassinClones(bool heroSide)
 {
-    // 仅移除 Hero 侧分身（PvP 客户端分身由敌方羁绊中断自行处理）
-
     std::vector<Unit*> clonesToRemove;
     for (auto& u : m_units) {
         if (u->isClone() && u->getType() == UnitType::Assassin && !u->isDead() && !u->isDisappeared()
-            && isHeroSide(u.get())) {   // 仅移除 Hero 侧分身（PvP 敌方分身由敌方羁绊管理）
+            && isHeroSide(u.get()) == heroSide) {
             clonesToRemove.push_back(u.get());
         }
     }
