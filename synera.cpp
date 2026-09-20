@@ -362,7 +362,7 @@ void Synera::startPvpBattle(unsigned seed)
 
     m_pvpBattle = true;
     m_showLevelLoss = false;
-    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; }
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
     m_burnTickCount = 0;
@@ -584,7 +584,7 @@ void Synera::startCustomBattle()
     recordReplay(QString::fromUtf8("自定义战斗"), battleSeed);
     m_customBattle = true;
     m_showLevelLoss = false;
-    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; }
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
     m_burnTickCount = 0;
@@ -622,10 +622,8 @@ void Synera::initGame()
     m_pendingDamageEvents.clear();
 
     // 初始化英雄信息面板：4 种类型
-    m_shop.push_back({UnitType::Warrior, 0});
-    m_shop.push_back({UnitType::Mage, 0});
-    m_shop.push_back({UnitType::Support, 0});
-    m_shop.push_back({UnitType::Assassin, 0});
+    for (int i = 0; i < RECRUITABLE_COUNT; ++i)
+        m_shop.push_back({RECRUITABLE_TYPES[i], 0});
 
     m_recruitRects.clear();
     m_recruitSlots.clear();
@@ -978,7 +976,7 @@ void Synera::startReplay()
 
     m_replayMode = true;
     m_showLevelLoss = false;
-    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; }
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
     m_burnTickCount = 0;
@@ -1243,7 +1241,7 @@ void Synera::startBattle()
         spawnEndlessWave();
         recordReplay(QString::fromUtf8("无尽 第%1波").arg(m_endlessWave), battleSeed);
         m_showLevelLoss = false;
-        for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+        for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; }
         m_phase = GamePhase::Battle;
         m_frameCounter = 0;
         m_burnTickCount = 0;
@@ -1278,7 +1276,7 @@ void Synera::startBattle()
 
     recordReplay(QString("Level %1").arg(m_currentLevel), battleSeed);
     m_showLevelLoss = false;
-    for (int i = 0; i < 5; ++i) m_bondActive[i] = false; // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活
+    for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; } // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活
     m_phase = GamePhase::Battle;
     m_frameCounter = 0;
     m_burnTickCount = 0;
@@ -1330,7 +1328,7 @@ void Synera::endLevel(bool playerWon)
         if (!u->isDead() && !u->isDisappeared())
             u->resetBondEffects();
     }
-    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; }
 
     // ── 无尽模式结算 ──
     if (m_gameMode == GameMode::Endless) {
@@ -2589,7 +2587,7 @@ void Synera::renderHeroInfo(QPainter& painter)
 
     // 滚动范围（内容底部超出视口的部分）
     const QRect vp = infoListViewport();
-    int contentBottom = INFO_PANEL_Y + 4 * (INFO_PANEL_H + INFO_SPACING) + 4;
+    int contentBottom = INFO_PANEL_Y + (int)m_shop.size() * (INFO_PANEL_H + INFO_SPACING) + 4;
     m_infoScrollMax = std::max(0, contentBottom - vp.bottom());
     if (m_infoScroll > m_infoScrollMax) m_infoScroll = m_infoScrollMax;
 }
@@ -4519,6 +4517,29 @@ void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<
             u->applyBondHpMult(1.5);
         }
         break;
+    case 5: // 箭雨风暴：2+射手 射程+1 ATK+10
+        for (Unit* u : alive) {
+            if (!isHeroSide(u)) continue;
+            if (u->getType() == UnitType::Hunter && !u->isClone()) {
+                u->applyBondRangeBonus(1);
+                u->applyBondAtkBonus(10);
+            }
+        }
+        break;
+    case 6: // 钢铁壁垒：2+骑士 HP×1.3
+        for (Unit* u : alive) {
+            if (!isHeroSide(u)) continue;
+            if (u->getType() == UnitType::Knight && !u->isClone())
+                u->applyBondHpMult(1.3);
+        }
+        break;
+    case 7: // 瘟疫蔓延：2+萨满 ATK+15
+        for (Unit* u : alive) {
+            if (!isHeroSide(u)) continue;
+            if (u->getType() == UnitType::Shaman && !u->isClone())
+                u->applyBondAtkBonus(15);
+        }
+        break;
     }
 }
 
@@ -4554,49 +4575,85 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
             u->revertBondHpMult(1.5);
         }
         break;
+    case 5: // 箭雨风暴
+        for (Unit* u : alive) {
+            if (!isHeroSide(u)) continue;
+            if (u->getType() == UnitType::Hunter && !u->isClone()) {
+                u->revertBondRangeBonus(1);
+                u->revertBondAtkBonus(10);
+            }
+        }
+        break;
+    case 6: // 钢铁壁垒
+        for (Unit* u : alive) {
+            if (!isHeroSide(u)) continue;
+            if (u->getType() == UnitType::Knight && !u->isClone())
+                u->revertBondHpMult(1.3);
+        }
+        break;
+    case 7: // 瘟疫蔓延
+        for (Unit* u : alive) {
+            if (!isHeroSide(u)) continue;
+            if (u->getType() == UnitType::Shaman && !u->isClone())
+                u->revertBondAtkBonus(15);
+        }
+        break;
     }
 }
 
 // 羁绊激活阈值（唯一来源，实时判定与准备阶段预览共用）
-void Synera::bondStatesFromCounts(int warriorCount, int mageCount,
-                                  int supportCount, int assassinCount, bool outActive[5])
+void Synera::bondStatesFromCounts(int warriorCount, int mageCount, int supportCount,
+                                  int assassinCount, int hunterCount, int knightCount,
+                                  int shamanCount, bool outActive[8])
 {
     outActive[0] = (warriorCount >= 3);
     outActive[1] = (mageCount >= 2);
     outActive[2] = (supportCount >= 2);
     outActive[3] = (assassinCount >= 2);
     outActive[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+    outActive[5] = (hunterCount >= 2);        // 箭雨风暴
+    outActive[6] = (knightCount >= 2);        // 钢铁壁垒
+    outActive[7] = (shamanCount >= 2);        // 瘟疫蔓延
 }
 
-void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
+// 对指定阵营检查羁绊（PvP 双端各自生效）
+void Synera::checkBondsForSide(std::vector<Unit*>& alive, bool heroSide, bool* bondActive)
 {
-    // 统计棋盘上玩家方英雄类型
     std::vector<Unit*> warriors, mages, supports, assassins;
+    int hunterC = 0, knightC = 0, shamanC = 0;
     for (Unit* u : alive) {
-        if (!isHeroSide(u)) continue;
+        if (isHeroSide(u) != heroSide) continue;
         switch (u->getType()) {
-            case UnitType::Warrior: warriors.push_back(u); break;
-            case UnitType::Mage: mages.push_back(u); break;
-            case UnitType::Support: supports.push_back(u); break;
+            case UnitType::Warrior:  warriors.push_back(u); break;
+            case UnitType::Mage:     mages.push_back(u); break;
+            case UnitType::Support:  supports.push_back(u); break;
             case UnitType::Assassin: assassins.push_back(u); break;
+            case UnitType::Hunter:   ++hunterC; break;
+            case UnitType::Knight:   ++knightC; break;
+            case UnitType::Shaman:   ++shamanC; break;
             default: break;
         }
     }
 
-    bool newBond[5];
-    bondStatesFromCounts((int)warriors.size(), (int)mages.size(),
-                         (int)supports.size(), (int)assassins.size(), newBond);
+    bool newBond[8];
+    bondStatesFromCounts((int)warriors.size(), (int)mages.size(), (int)supports.size(),
+                         (int)assassins.size(), hunterC, knightC, shamanC, newBond);
 
-    for (int i = 0; i < 5; ++i) {
-        if (newBond[i] && !m_bondActive[i]) {
-            // 羁绊激活
+    for (int i = 0; i < 8; ++i) {
+        if (newBond[i] && !bondActive[i]) {
             applyBondEffect(i, warriors, mages, supports, assassins, alive);
-        } else if (!newBond[i] && m_bondActive[i]) {
-            // 羁绊失效
+        } else if (!newBond[i] && bondActive[i]) {
             revertBondEffect(i, alive);
         }
-        m_bondActive[i] = newBond[i];
+        bondActive[i] = newBond[i];
     }
+}
+
+void Synera::checkAndApplyBonds(std::vector<Unit*>& alive)
+{
+    checkBondsForSide(alive, true, m_bondActive);
+    if (m_pvpBattle)
+        checkBondsForSide(alive, false, m_bondActiveEnemy);
 }
 
 void Synera::previewBonds()
@@ -4604,16 +4661,21 @@ void Synera::previewBonds()
     // 准备阶段预览：只判定不生效
     std::vector<Unit*> heroes = collectSurvivingHeroes();
     int warriorCount = 0, mageCount = 0, supportCount = 0, assassinCount = 0;
+    int hunterCount = 0, knightCount = 0, shamanCount = 0;
     for (Unit* u : heroes) {
         switch (u->getType()) {
             case UnitType::Warrior: ++warriorCount; break;
             case UnitType::Mage: ++mageCount; break;
             case UnitType::Support: ++supportCount; break;
             case UnitType::Assassin: ++assassinCount; break;
+            case UnitType::Hunter: ++hunterCount; break;
+            case UnitType::Knight: ++knightCount; break;
+            case UnitType::Shaman: ++shamanCount; break;
             default: break;
         }
     }
-    bondStatesFromCounts(warriorCount, mageCount, supportCount, assassinCount, m_bondActive);
+    bondStatesFromCounts(warriorCount, mageCount, supportCount, assassinCount,
+                         hunterCount, knightCount, shamanCount, m_bondActive);
 }
 
 void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive)
@@ -4781,12 +4843,15 @@ void Synera::renderBonds(QPainter& painter)
         const char* name;
         const char* desc;
     };
-    static const BondUIData bondData[5] = {
+    static const BondUIData bondData[8] = {
         {"战斗不息", "3战士:生命翻倍"},
         {"吟咏魔典", "2法师:共享技能点"},
         {"生生不息", "2辅助:治疗翻倍+范围+1"},
         {"暗夜幻影", "2刺客:生成分身(星-1)"},
         {"全军出击", "4职齐:全属性上升"},
+        {"箭雨风暴", "2射手:射程+1攻+10"},
+        {"钢铁壁垒", "2骑士:生命×1.3"},
+        {"瘟疫蔓延", "2萨满:攻击+15"},
     };
 
     QFont nameFont;

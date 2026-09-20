@@ -209,8 +209,9 @@ private:
     void shareManaToMages(Unit* caster, const std::vector<Unit*>& alive) const;
 
     // 羁绊状态计算（阈值表达式唯一来源）
-    static void bondStatesFromCounts(int warriorCount, int mageCount,
-                                     int supportCount, int assassinCount, bool outActive[5]);
+    static void bondStatesFromCounts(int warriorCount, int mageCount, int supportCount,
+                                     int assassinCount, int hunterCount, int knightCount,
+                                     int shamanCount, bool outActive[8]);
 
     // 布局/命中检测辅助
     bool anyHeroOnPlayerHalf() const;
@@ -220,6 +221,7 @@ private:
 
     // 羁绊系统
     void checkAndApplyBonds(std::vector<Unit*>& alive);
+    void checkBondsForSide(std::vector<Unit*>& alive, bool heroSide, bool* bondActive);
     void previewBonds();  // 准备阶段预览羁绊状态
     void spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive);
     void removeAssassinClones();
@@ -339,7 +341,8 @@ private:
     int countBoardHeroes() const;
 
     // 羁绊状态
-    bool m_bondActive[5] = {false, false, false, false, false};
+    bool m_bondActive[8] = {false};          // 我方（Hero侧）羁绊
+    bool m_bondActiveEnemy[8] = {false};     // 对方（PvP 客户端阵容）羁绊
 
     // 视觉特效
     std::vector<HitEffect> m_hitEffects;
