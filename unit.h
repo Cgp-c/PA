@@ -82,6 +82,7 @@ public:
     std::string getName() const;
     int getHp() const;
     int getMaxHp() const;
+    int getBaseMaxHp() const { return m_maxHp; }   // 不含装备/羁绊的基础值（序列化用）
     Position getPosition() const;
     UnitType getType() const;
 

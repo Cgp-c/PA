@@ -265,6 +265,8 @@ void Synera::pvpReady()
             ju["y"] = y;
             ju["hp"] = u->getHp();
             ju["maxHp"] = u->getMaxHp();
+            ju["baseMaxHp"] = u->getBaseMaxHp();
+            ju["atk"] = u->getAttackDamage();
             ju["mana"] = u->getMana();
             QJsonArray eq;
             for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
@@ -307,19 +309,18 @@ void Synera::placePvpLineup(const QJsonObject& lineup, bool asHero, bool mirror)
         if (!u) continue;
 
         // 重建装备（装备改变 HP/攻速等，需在恢复 HP 前装备，与读档同序）
+        // 装备由 m_weapons 统一持有（createWeaponByName 内部注册），不重复包装
         const QJsonArray eq = ju["equips"].toArray();
         for (int ei = 0; ei < static_cast<int>(EquipType::COUNT) && ei < eq.size(); ++ei) {
             if (eq[ei].isString()) {
-                std::unique_ptr<Weapon> w(createWeaponByName(eq[ei].toString().toStdString()));
-                if (w) {
-                    Weapon* wp = w.get();
-                    m_pvpWeapons.push_back(std::move(w));
-                    u->equip(wp);
-                }
+                Weapon* w = createWeaponByName(eq[ei].toString().toStdString());
+                if (w) u->equip(w);
             }
         }
-        u->setMaxHp(ju["maxHp"].toInt());
-        u->setHp(ju["hp"].toInt());
+        // setMaxHp 用基础值（不含装备），装备的 HP 加成由 getMaxHp() 动态叠加
+        u->setMaxHp(ju.contains("baseMaxHp") ? ju["baseMaxHp"].toInt() : ju["maxHp"].toInt()
+                    - u->getEquipBonusHp());
+        u->setHp(std::min(ju["hp"].toInt(), u->getMaxHp()));
         u->setMana(ju["mana"].toInt());
         // 终极角色的动态攻击力恢复（合成时计算的数值，随快照还原）
         if (u->getType() == UnitType::Ultimate && ju.contains("atk")) {
@@ -847,11 +848,15 @@ void Synera::synthesizeUltimate(Unit* a, Unit* b, Unit* c, int placeX, int place
     collectEquipsInto(ult, {a, b, c});
     ult->setHp(ult->getMaxHp());
 
-    // 先从棋盘移除全部素材（释放格子），再放置终极角色
+    // 从棋盘和回收槽移除全部素材（释放格子/槽位）
     Position ap = a->getPosition();
     Position bp = b->getPosition();
     if (m_board.getUnitAt(ap.x, ap.y) == a) m_board.removeUnit(ap.x, ap.y);
     if (m_board.getUnitAt(bp.x, bp.y) == b) m_board.removeUnit(bp.x, bp.y);
+    for (auto& slot : m_recycleSlots) {
+        if (slot == a) slot = nullptr;
+        if (slot == b) slot = nullptr;
+    }
 
     // 落点：优先素材原格（若仍被占则就近）
     if (!m_board.placeUnit(ult, placeX, placeY)) {
@@ -880,6 +885,7 @@ static QJsonObject serializeOneUnit(Unit* u, int x, int y)
     ju["y"] = y;
     ju["hp"] = u->getHp();
     ju["maxHp"] = u->getMaxHp();
+    ju["baseMaxHp"] = u->getBaseMaxHp();   // 不含装备的基础值，恢复时避免双计
     ju["mana"] = u->getMana();
     ju["atk"] = u->getAttackDamage();   // 终极角色动态攻击恢复用
     QJsonArray eq;
@@ -936,16 +942,13 @@ void Synera::restoreRecycle(const QJsonArray& arr)
         const QJsonArray eq = ju["equips"].toArray();
         for (int ei = 0; ei < static_cast<int>(EquipType::COUNT) && ei < eq.size(); ++ei) {
             if (eq[ei].isString()) {
-                std::unique_ptr<Weapon> w(createWeaponByName(eq[ei].toString().toStdString()));
-                if (w) {
-                    Weapon* wp = w.get();
-                    m_pvpWeapons.push_back(std::move(w));
-                    u->equip(wp);
-                }
+                Weapon* w = createWeaponByName(eq[ei].toString().toStdString());
+                if (w) u->equip(w);
             }
         }
-        u->setMaxHp(ju["maxHp"].toInt());
-        u->setHp(ju["hp"].toInt());
+        u->setMaxHp(ju.contains("baseMaxHp") ? ju["baseMaxHp"].toInt() : ju["maxHp"].toInt()
+                    - u->getEquipBonusHp());
+        u->setHp(std::min(ju["hp"].toInt(), u->getMaxHp()));
         u->setMana(ju["mana"].toInt());
         int slot = ju["slot"].toInt(0);
         if (slot >= 0 && slot < (int)m_recycleSlots.size())
@@ -1055,15 +1058,18 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
     // Remove target from board; dragged unit is already detached from its source
     m_board.removeUnit(boardX, boardY);
 
-    // Delete both old units
-    draggedUnit->setDisappeared(true);
-    targetUnit->setDisappeared(true);
-
     // Create new upgraded unit
     Unit* newUnit = createUpgradedHero(type, newStarLevel);
 
+    // 收集两者装备到新单位（每类保留一件，多余进掉落区）
+    collectEquipsInto(newUnit, {draggedUnit, targetUnit});
+
     // Place on board
     m_board.placeUnit(newUnit, boardX, boardY);
+
+    // Delete both old units
+    draggedUnit->setDisappeared(true);
+    targetUnit->setDisappeared(true);
 
     // Mana: Assassin gets full, others start at 0
     if (type == UnitType::Assassin) {
@@ -1707,7 +1713,7 @@ void Synera::loadGame(const QString& filePath)
         }
         // 装备恢复后再设置HP（防御装equip()给m_hp加bonus后，setHp覆写为存档值）
         int savedHp = o["hp"].toInt(-1);
-        if (savedHp >= 0) u->setHp(savedHp);
+        if (savedHp >= 0) u->setHp(std::min(savedHp, u->getMaxHp()));
         u->setMana(o["mana"].toInt(0));
         if (o.contains("atk") && u->getType() == UnitType::Ultimate)
             if (auto* uh = dynamic_cast<UltimateHero*>(u))
@@ -2938,8 +2944,11 @@ void Synera::tryEquipDrop()
 {
     // 联机对战不掉落装备：随机数调用会破坏双端锁步一致性
     if (m_pvpBattle) return;
-    // 回放模式不掉落：回放不产生任何经济变化
-    if (m_replayMode) return;
+    // 回放模式：仍然消耗 rand 保持 RNG 流一致，但不产生实际装备
+    if (m_replayMode) {
+        std::rand(); std::rand();   // 消耗与实际掉落相同的随机数
+        return;
+    }
     // 去掉每关获取上限，仅限制掉落区容量
     if ((int)m_equipDrops.size() >= MAX_EQUIP_DROPS) return;
     int chance = 10 * m_currentLevel + 5; // 基础概率 +5%
@@ -4930,9 +4939,12 @@ void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vecto
 
 void Synera::removeAssassinClones()
 {
+    // 仅移除 Hero 侧分身（PvP 客户端分身由敌方羁绊中断自行处理）
+
     std::vector<Unit*> clonesToRemove;
     for (auto& u : m_units) {
-        if (u->isClone() && u->getType() == UnitType::Assassin && !u->isDead() && !u->isDisappeared()) {
+        if (u->isClone() && u->getType() == UnitType::Assassin && !u->isDead() && !u->isDisappeared()
+            && isHeroSide(u.get())) {   // 仅移除 Hero 侧分身（PvP 敌方分身由敌方羁绊管理）
             clonesToRemove.push_back(u.get());
         }
     }
