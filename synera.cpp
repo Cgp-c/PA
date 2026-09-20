@@ -4434,18 +4434,10 @@ void Synera::processCombatFrame()
     }
 
     // 执行移动（附带轨迹粒子特效）
-    // 被活跃弹道锁定的单位延迟移动（弹道打在移动前的位置问题的修复）
+    // 弹道通过视觉追踪（renderProjectiles 每帧更新终点）命中移动中的目标，
+    // 不锁定移动——各职业移速不受弹道影响
     for (auto& m : moves) {
         if (m_board.isOccupied(m.to.x, m.to.y)) continue;
-        bool lockedByProjectile = false;
-        for (const auto& pe : m_projectileEffects) {
-            if (pe.target == m.unit
-                && m_frameCounter < pe.startFrame + pe.duration) {
-                lockedByProjectile = true;
-                break;
-            }
-        }
-        if (lockedByProjectile) continue;   // 等弹道结束后下一帧再移动
         Position old = m.unit->getPosition();
         m_board.removeUnit(old.x, old.y);
         m_board.placeUnit(m.unit, m.to.x, m.to.y);
