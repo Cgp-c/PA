@@ -302,7 +302,8 @@ void Synera::placePvpLineup(const QJsonObject& lineup, bool asHero, bool mirror)
     for (const QJsonValue& v : units) {
         const QJsonObject ju = v.toObject();
         UnitType t = static_cast<UnitType>(ju["type"].toInt());
-        Unit* u = createUnitFromPool(t, asHero, ju["star"].toInt());
+        Unit* u = createUnitFromPool(t, asHero, ju["star"].toInt(),
+                                      /*isBoss=*/t == UnitType::Boss);
         if (!u) continue;
 
         // 重建装备（装备改变 HP/攻速等，需在恢复 HP 前装备，与读档同序）
@@ -1087,7 +1088,10 @@ void Synera::checkAutoStarUp()
                 if (full3(u)) { a = u; break; }
             }
         for (Unit* u : m_recycleSlots)
-            if (full3(u) && (!a || u != a)) { if (!a) a = u; else { b = u; break; } }
+            if (full3(u) && (!a || u != a)) {
+                if (!a) a = u;
+                else if (u->getType() != a->getType()) { b = u; break; }
+            }
         if (a) {
             for (int y = 0; y < Board::SIZE && !b; ++y)
                 for (int x = 0; x < Board::SIZE; ++x) {
@@ -1584,6 +1588,7 @@ void Synera::saveGame(const QString& filePath)
             bu["hp"] = u->getHp();
             bu["maxHp"] = u->getMaxHp();
             bu["mana"] = u->getMana();
+            bu["atk"] = u->getAttackDamage();   // 终极角色动态攻击力
             bu["burning"] = u->getBurningTurns();
             // 多槽装备存档
             QJsonArray equipArr;
@@ -1615,6 +1620,7 @@ void Synera::saveGame(const QString& filePath)
         ru["hp"] = u->getHp();
         ru["maxHp"] = u->getMaxHp();
         ru["mana"] = u->getMana();
+        ru["atk"] = u->getAttackDamage();
         ru["burning"] = u->getBurningTurns();
         QJsonArray equipArr;
         for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
@@ -1698,8 +1704,10 @@ void Synera::loadGame(const QString& filePath)
         // 装备恢复后再设置HP（防御装equip()给m_hp加bonus后，setHp覆写为存档值）
         int savedHp = o["hp"].toInt(-1);
         if (savedHp >= 0) u->setHp(savedHp);
-        int mana = o["mana"].toInt(0);
-        for (int i = 0; i < mana; ++i) u->gainMana();
+        u->setMana(o["mana"].toInt(0));
+        if (o.contains("atk") && u->getType() == UnitType::Ultimate)
+            if (auto* uh = dynamic_cast<UltimateHero*>(u))
+                uh->setDynamicAtk(o["atk"].toInt());
         int burning = o["burning"].toInt(0);
         if (burning > 0) u->applyBurning(burning);
         return u;
@@ -3768,7 +3776,15 @@ void Synera::processDrop(const QPoint& mousePos)
             if (inter.isEmpty()) continue;
             int overlap = inter.width() * inter.height();
             if (overlap <= unitArea / 2) continue;
-            if (m_board.isOccupied(x, y)) continue;
+            if (m_board.isOccupied(x, y)) {
+                // 拖到已占格 → 尝试合成（同名同星升星 / 三职业终极合成）
+                if (tryStarUp(x, y, m_draggedUnit)) {
+                    m_draggedUnit = nullptr;
+                    update();
+                    return;
+                }
+                continue;
+            }
             if (overlap > bestOverlap) {
                 bestOverlap = overlap;
                 bestGx = x; bestGy = y;
@@ -4663,11 +4679,17 @@ void Synera::checkBondsForSide(std::vector<Unit*>& alive, bool heroSide, bool* b
     bondStatesFromCounts((int)warriors.size(), (int)mages.size(), (int)supports.size(),
                          (int)assassins.size(), hunterC, knightC, shamanC, newBond);
 
+    // 构建阵营过滤后的 alive 列表（防止羁绊效果误加到敌方）
+    std::vector<Unit*> sideAlive;
+    for (Unit* u : alive)
+        if (isHeroSide(u) == heroSide)
+            sideAlive.push_back(u);
+
     for (int i = 0; i < 8; ++i) {
         if (newBond[i] && !bondActive[i]) {
-            applyBondEffect(i, warriors, mages, supports, assassins, alive);
+            applyBondEffect(i, warriors, mages, supports, assassins, sideAlive);
         } else if (!newBond[i] && bondActive[i]) {
-            revertBondEffect(i, alive);
+            revertBondEffect(i, sideAlive);
         }
         bondActive[i] = newBond[i];
     }
@@ -4892,7 +4914,7 @@ void Synera::renderBonds(QPainter& painter)
     QFont descFont;
     descFont.setPixelSize(6);
 
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 8; ++i) {
         int by = bondStartY + i * 17;   // 单行紧凑排版，5 行共 85px
         int boxSize = 8;
         QRect boxRect(bondX, by, boxSize, boxSize);

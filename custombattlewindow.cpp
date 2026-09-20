@@ -62,7 +62,7 @@ bool CustomBattleWindow::isValid() const
     if (m_specs.isEmpty() || m_specs.size() > MAX_ROWS) return false;
     int total = 0;
     for (const EnemySpec& s : m_specs) {
-        if (s.type < 0 || s.type > static_cast<int>(UnitType::Boss)) return false;
+        if (s.type < 0 || s.type >= static_cast<int>(UnitType::COUNT)) return false;
         if (s.star < 0 || s.star > 3) return false;
         if (s.count < 1) return false;
         total += s.count;
