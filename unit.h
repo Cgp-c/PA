@@ -14,7 +14,15 @@ struct Position {
     }
 };
 
-enum class UnitType { Warrior, Mage, Support, Assassin, Boss };
+enum class UnitType {
+    Warrior = 0, Mage = 1, Support = 2, Assassin = 3,
+    Boss = 4,          // ← 值固定：存档/联机按整数存类型
+    Hunter = 5,        // 射手：远程物理
+    Knight = 6,        // 骑士：高血坦克
+    Shaman = 7,        // 萨满：持续毒伤
+    Ultimate = 8,      // 终极角色（三职业三星合成，动态数值）
+    COUNT = 9
+};
 
 inline int manhattanDist(const Position& a, const Position& b) {
     return std::abs(a.x - b.x) + std::abs(a.y - b.y);
@@ -58,10 +66,17 @@ public:
     virtual void useSkill(Board& board, std::vector<Unit*>& allUnits) = 0;
     virtual void useSkill2(Board& board, std::vector<Unit*>& allUnits);
 
-    // 燃烧状态
+    // 新职业技能的通用实现（Hero/Enemy 共用，unit.cpp）
+    void hunterSkill(Board& board, std::vector<Unit*>& allUnits);    // 三连箭
+    void knightSkill(Board& board, std::vector<Unit*>& allUnits);    // 盾击+自疗
+    void shamanSkill(Board& board, std::vector<Unit*>& allUnits);    // 腐蚀之种
+    void ultimateSkill(Board& board, std::vector<Unit*>& allUnits);  // 天罚
+
+    // 燃烧状态（萨满的毒复用同一 DOT 管线，green 标记控制渲染颜色）
     bool isBurning() const;
     int getBurningTurns() const;
-    void applyBurning(int turns, int damage = 10);
+    bool isGreenDot() const { return m_dotGreen; }
+    void applyBurning(int turns, int damage = 10, bool green = false);
     void tickBurning();
 
     std::string getName() const;
@@ -181,6 +196,7 @@ protected:
     bool m_burning;
     int m_burningTurns;
     int m_burningDamage = 10;
+    bool m_dotGreen = false;
     int m_moveSpeed;
     int m_attackSpeed;
     int m_moveTimer;

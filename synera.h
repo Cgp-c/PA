@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QPixmap>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <vector>
 #include <map>
 #include <memory>
@@ -45,9 +46,10 @@ struct SlashEffect {
     int duration;
 };
 
-struct ProjectileEffect {          // 法师火球飞行弹道
+struct ProjectileEffect {          // 飞行弹道（火球/箭矢/毒弹共用）
     int fromX, fromY;    // 发射者格子
     int toX, toY;        // 目标格子
+    int tint;            // 0=法师火球 1=射手箭矢 2=萨满毒弹
     int startFrame;
     int duration;
 };
@@ -118,6 +120,38 @@ private:
     Unit* createUpgradedHero(UnitType type, int starLevel);
     bool tryStarUp(int boardX, int boardY, Unit* draggedUnit);
     void checkAutoStarUp();
+
+    // 终极合成（3 个不同职业 3 星 → 动态数值终极角色）
+    Unit* findThirdUltimateMaterial(Unit* a, Unit* b) const;
+    void synthesizeUltimate(Unit* a, Unit* b, Unit* c, int placeX, int placeY);
+    void collectEquipsInto(Unit* dst, std::vector<Unit*> sources);
+
+    // 战斗加速/暂停
+    int m_battleSpeed = 1;              // 1/2/3 倍速
+    bool m_battlePaused = false;
+    QRect m_speedBtnRects[3];
+    QRect m_pauseBtnRect;
+    void setBattleSpeed(int speed);
+
+    // 战斗回放（只存上一局）
+    struct ReplayData {
+        bool valid = false;
+        QString label;
+        unsigned seed = 0;
+        QJsonArray heroes, enemies, recycle;
+    };
+    ReplayData m_lastReplay;
+    bool m_replayMode = false;
+    ReplayData m_preReplayState;        // 回放前的准备阶段快照
+    QJsonArray serializeBoardSide(bool heroSide) const;
+    QJsonArray serializeRecycle() const;
+    void restoreRecycle(const QJsonArray& arr);
+    void recordReplay(const QString& label, unsigned seed);
+    void startReplay();
+    QRect m_replayBtnRect;
+
+    // 回收槽安全清理（防 m_units.clear() 悬挂，联机/回放共用）
+    QJsonArray snapshotAndClearRecycle();
 
     void saveGame(const QString& filePath);
     void loadGame(const QString& filePath);

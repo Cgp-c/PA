@@ -25,6 +25,8 @@ qt_add_executable(Synera
     synera.ui
     unit.h
     unit.cpp
+    unitstats.h
+    unitstats.cpp
     unitvisuals.h
     hero.h
     hero.cpp
@@ -50,6 +52,9 @@ target_link_libraries(Synera PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui Qt6::Networ
 
 # 打开编译器警告，便于持续做代码质量校验
 target_compile_options(Synera PRIVATE -Wall -Wextra)
+
+# 拷贝数值表到构建目录（改表调平衡无需重编译）
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/config/ DESTINATION ${CMAKE_BINARY_DIR}/config)
 
 # 拷贝单位图片资源到构建目录，运行时按相对路径 src/unit/ 加载（Boss 立绘等）
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/src/unit/ DESTINATION ${CMAKE_BINARY_DIR}/src/unit)

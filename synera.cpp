@@ -3,6 +3,7 @@
 #include "hero.h"
 #include "enemy.h"
 #include "unitvisuals.h"
+#include "unitstats.h"
 #include "weapon.h"
 #include "equipsynthwindow.h"
 #include "custombattlewindow.h"
@@ -28,6 +29,7 @@
 #include <cmath>
 #include <algorithm>
 #include <set>
+#include <queue>
 //存档以后在战斗失败以后判定？？？存疑
 
 // 前向声明：合成配方查询
@@ -205,7 +207,7 @@ void Synera::startPvpFromLobby(bool isHost)
         const int starLv = guestStrong ? (m_pvpIsHost ? 0 : 6) : (m_pvpIsHost ? 6 : 0);
         for (int i = 0; i < 4; ++i) {
             Unit* h = createUnitFromPool(types[i], true, starLv);
-            m_board.placeUnit(h, 1 + i * 2, 6);
+            m_board.placeUnit(h, i, 6);
         }
         pvpReady();
     }
@@ -318,6 +320,11 @@ void Synera::placePvpLineup(const QJsonObject& lineup, bool asHero, bool mirror)
         u->setMaxHp(ju["maxHp"].toInt());
         u->setHp(ju["hp"].toInt());
         u->setMana(ju["mana"].toInt());
+        // 终极角色的动态攻击力恢复（合成时计算的数值，随快照还原）
+        if (u->getType() == UnitType::Ultimate && ju.contains("atk")) {
+            if (auto* uh = dynamic_cast<UltimateHero*>(u))
+                uh->setDynamicAtk(ju["atk"].toInt());
+        }
 
         int px = mirror ? Board::SIZE - 1 - ju["x"].toInt() : ju["x"].toInt();
         int py = mirror ? Board::SIZE - 1 - ju["y"].toInt() : ju["y"].toInt();
@@ -337,12 +344,17 @@ void Synera::startPvpBattle(unsigned seed)
     //   客户端阵容 = 敌方侧（180° 镜像，上方半场）
     // 两台机器执行同一份重建代码 → 初始状态位相同；再配合同种子 → 锁步一致。
     m_pvpWeapons.clear();
+    // 修复悬挂：回收槽英雄仍在 m_units 里，clear 会销毁它们 → 先快照并置空槽位，
+    // 重建后再恢复（恢复的单位重新进入 m_units，继续作为备战席存在）
+    const QJsonArray recycleSnap = snapshotAndClearRecycle();
     m_units.clear();            // 战斗单位全部由快照重建（unique_ptr 自动析构旧单位）
     m_board.clear();
     const QJsonObject& hostLineup  = m_pvpIsHost ? m_pvpLocalLineup  : m_pvpRemoteLineup;
     const QJsonObject& guestLineup = m_pvpIsHost ? m_pvpRemoteLineup : m_pvpLocalLineup;
     if (!hostLineup.isEmpty())  placePvpLineup(hostLineup, true, false);
     if (!guestLineup.isEmpty()) placePvpLineup(guestLineup, false, true);
+    restoreRecycle(recycleSnap);
+    recordReplay(QString::fromUtf8("联机对战"), seed);
 
     std::srand(seed);           // 双端同种子：战斗期无其它随机调用 → 逐帧一致
     for (auto& up : m_units)
@@ -427,7 +439,8 @@ void Synera::evolveEndlessComp()
 
     // 规则一：未达容量上限（敌方半场 32 格）→ 随机某类 +1 个（0 星）
     if (total < CustomBattleWindow::MAX_ENEMIES) {
-        int type = std::rand() % 4;   // 四职业随机
+        // 全部 7 职业随机增员（初始编成仍是原四职业）
+        int type = static_cast<int>(RECRUITABLE_TYPES[std::rand() % RECRUITABLE_COUNT]);
         m_endlessComp.push_back({type, 0});
         return;
     }
@@ -542,11 +555,15 @@ void Synera::startCustomBattle()
     for (auto& up : m_units)
         if (up) up->resetBattleStats();
 
+    // 显式播种（确定性 + 回放）
+    const unsigned battleSeed = static_cast<unsigned>(std::rand());
+    std::srand(battleSeed);
+
     // 防御性再校验：字段范围 + 总量上限（不信任跨窗口数据）
     const auto specs = m_customBattleWindow->specs();
     int total = 0;
     for (const auto& sp : specs) {
-        if (sp.type < 0 || sp.type > static_cast<int>(UnitType::Boss)) return;
+        if (sp.type < 0 || sp.type >= static_cast<int>(UnitType::COUNT)) return;
         if (sp.star < 0 || sp.star > 3) return;
         if (sp.count < 1) return;
         total += sp.count;
@@ -564,6 +581,7 @@ void Synera::startCustomBattle()
         }
     }
 
+    recordReplay(QString::fromUtf8("自定义战斗"), battleSeed);
     m_customBattle = true;
     m_showLevelLoss = false;
     for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
@@ -624,14 +642,15 @@ void Synera::initGame()
     // SYNERA_DEMO_BATTLE=2 时只摆英雄不摆敌方（配合无尽模式快速验证胜利结算）
     const bool demoHeroesOnly = (qEnvironmentVariable("SYNERA_DEMO_BATTLE") == QByteArray("2"));
     if (qEnvironmentVariableIsSet("SYNERA_DEMO_UNITS")) {
-        const UnitType types[] = {UnitType::Warrior, UnitType::Mage,
-                                  UnitType::Support, UnitType::Assassin};
-        for (int i = 0; i < 4; ++i) {
+        // v0.23：演示阵容覆盖全部 7 职业
+        const UnitType* types = RECRUITABLE_TYPES;
+        const int nTypes = RECRUITABLE_COUNT;
+        for (int i = 0; i < nTypes; ++i) {
             Unit* h = createUnitFromPool(types[i], true, demoHeroesOnly ? 6 : 0);
             m_board.placeUnit(h, 1 + i * 2, 6);
             if (!demoHeroesOnly) {
                 Unit* e = createUnitFromPool(types[i], false);
-                m_board.placeUnit(e, 1 + i * 2, 1);
+                m_board.placeUnit(e, i, 1);
             }
         }
         if (!demoHeroesOnly) {
@@ -684,21 +703,13 @@ void Synera::initLevel()
 
 int Synera::heroCost(UnitType t) const
 {
-    switch (t) {
-        case UnitType::Warrior:  return 100;
-        case UnitType::Mage:     return 80;
-        case UnitType::Support:  return 50;
-        case UnitType::Assassin: return 60;
-        case UnitType::Boss:     return 0;   // Boss 不可招募
-    }
-    return 0;
+    return statsOf(t).cost;   // 数值表驱动（Boss/终极 cost=0 即不可招募）
 }
 
 void Synera::refreshRecruitment()
 {
-    UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
     for (auto& slot : m_recruitSlots) {
-        slot.type = types[std::rand() % 4];
+        slot.type = RECRUITABLE_TYPES[std::rand() % RECRUITABLE_COUNT];
         int base = heroCost(slot.type);
         int fluctuation = 5 * (std::rand() % 5) * ((std::rand() % 3) - 1);
         slot.price = base + fluctuation;
@@ -709,15 +720,7 @@ void Synera::refreshRecruitment()
 
 int Synera::enemyGoldValue(const Unit* u) const
 {
-    int base = 0;
-    switch (u->getType()) {
-        case UnitType::Warrior:  base = 80; break;
-        case UnitType::Mage:     base = 60; break;
-        case UnitType::Support:  base = 30; break;
-        case UnitType::Assassin: base = 30; break;
-        case UnitType::Boss:     base = 200; break;
-    }
-    return base * (u->getStarLevel() / 2 + 1);
+    return statsOf(u->getType()).goldValue * (u->getStarLevel() / 2 + 1);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -732,6 +735,10 @@ Unit* Synera::createUnitFromPool(UnitType type, bool isHero, int starLevel, bool
             case UnitType::Mage:     { auto u = std::make_unique<MageHero>(starLevel);     Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
             case UnitType::Support:  { auto u = std::make_unique<SupportHero>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
             case UnitType::Assassin: { auto u = std::make_unique<AssassinHero>(starLevel); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Hunter:   { auto u = std::make_unique<HunterHero>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Knight:   { auto u = std::make_unique<KnightHero>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Shaman:   { auto u = std::make_unique<ShamanHero>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Ultimate: { auto u = std::make_unique<UltimateHero>(ultimateStats().defaultHp, ultimateStats().defaultAtk); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
             default: break;
         }
     } else {
@@ -746,6 +753,10 @@ Unit* Synera::createUnitFromPool(UnitType type, bool isHero, int starLevel, bool
             case UnitType::Mage:     { auto u = std::make_unique<MageEnemy>(starLevel);     Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
             case UnitType::Support:  { auto u = std::make_unique<SupportEnemy>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
             case UnitType::Assassin: { auto u = std::make_unique<AssassinEnemy>(starLevel); Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Hunter:   { auto u = std::make_unique<HunterEnemy>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Knight:   { auto u = std::make_unique<KnightEnemy>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Shaman:   { auto u = std::make_unique<ShamanEnemy>(starLevel);  Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
+            case UnitType::Ultimate: { auto u = std::make_unique<UltimateEnemy>();         Unit* p = u.get(); m_units.push_back(std::move(u)); return p; }
             default: break;
         }
     }
@@ -755,6 +766,234 @@ Unit* Synera::createUnitFromPool(UnitType type, bool isHero, int starLevel, bool
 Unit* Synera::createUpgradedHero(UnitType type, int starLevel)
 {
     return createUnitFromPool(type, true, starLevel);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 终极合成：3 个不同职业的 3 星英雄 → 终极角色
+// 数值 = 三个素材三星基础值之和 × ultimateStats().hpRatio/atkRatio
+// ═══════════════════════════════════════════════════════════════
+
+// 找第三个不同职业的 3 星英雄素材（棋盘 + 回收槽，排除 a/b 自身）
+Unit* Synera::findThirdUltimateMaterial(Unit* a, Unit* b) const
+{
+    auto ok = [](Unit* u, Unit* a2, Unit* b2) {
+        return u && u != a2 && u != b2 && isHeroSide(u) && !u->isDead()
+               && !u->isDisappeared() && u->getStarLevel() >= 6
+               && isRecruitableType(u->getType())
+               && u->getType() != a2->getType() && u->getType() != b2->getType();
+    };
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (ok(u, a, b)) return u;
+        }
+    for (Unit* u : m_recycleSlots)
+        if (ok(u, a, b)) return u;
+    return nullptr;
+}
+
+// 汇集多个单位的装备到目标单位（每类保留一件，多余进掉落区）
+void Synera::collectEquipsInto(Unit* dst, std::vector<Unit*> sources)
+{
+    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+        EquipType et = static_cast<EquipType>(ei);
+        Weapon* keep = dst->getEquip(et);
+        for (Unit* src : sources) {
+            Weapon* w = src->getEquip(et);
+            if (!w) continue;
+            if (!keep) {
+                // 直接转移指针（源单位即将销毁，装备归新单位语境使用）
+                dst->equip(w);
+                keep = w;
+            } else {
+                m_equipDrops.push_back(w);
+            }
+        }
+    }
+}
+
+void Synera::synthesizeUltimate(Unit* a, Unit* b, Unit* c, int placeX, int placeY)
+{
+    // 动态数值：三星基础值（不含装备）之和 × 比例
+    const UnitType types[3] = {a->getType(), b->getType(), c->getType()};
+    int hpSum = 0, atkSum = 0;
+    for (UnitType t : types) {
+        hpSum += baseHpAtStar(t, 6);
+        atkSum += baseAtkAtStar(t, 6);
+    }
+    const int hp = static_cast<int>(hpSum * ultimateStats().hpRatio);
+    const int atk = static_cast<int>(atkSum * ultimateStats().atkRatio);
+
+    // 第三个素材从棋盘或回收槽移除
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x)
+            if (m_board.getUnitAt(x, y) == c)
+                m_board.removeUnit(x, y);
+    for (auto& slot : m_recycleSlots)
+        if (slot == c) slot = nullptr;
+
+    // 生成终极角色并继承三者装备
+    auto u = std::make_unique<UltimateHero>(hp, atk);
+    Unit* ult = u.get();
+    m_units.push_back(std::move(u));
+    collectEquipsInto(ult, {a, b, c});
+    ult->setHp(ult->getMaxHp());
+
+    // 落点：目标格（若被占则就近）
+    if (!m_board.placeUnit(ult, placeX, placeY)) {
+        for (int y = Board::SIZE - 1; y >= Board::SIZE / 2; --y)
+            for (int x = 0; x < Board::SIZE; ++x)
+                if (m_board.placeUnit(ult, x, y)) goto ult_placed;
+    }
+    ult_placed:
+
+    // 消耗三个素材
+    a->setDisappeared(true);
+    b->setDisappeared(true);
+    c->setDisappeared(true);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 阵容序列化 / 回收槽快照（回放与联机共用）
+// ═══════════════════════════════════════════════════════════════
+
+static QJsonObject serializeOneUnit(Unit* u, int x, int y)
+{
+    QJsonObject ju;
+    ju["type"] = static_cast<int>(u->getType());
+    ju["star"] = u->getStarLevel();
+    ju["x"] = x;
+    ju["y"] = y;
+    ju["hp"] = u->getHp();
+    ju["maxHp"] = u->getMaxHp();
+    ju["mana"] = u->getMana();
+    ju["atk"] = u->getAttackDamage();   // 终极角色动态攻击恢复用
+    QJsonArray eq;
+    for (int ei = 0; ei < static_cast<int>(EquipType::COUNT); ++ei) {
+        Weapon* w = u->getEquip(static_cast<EquipType>(ei));
+        eq.append(w ? QJsonValue(QString::fromStdString(w->getName()))
+                    : QJsonValue(QJsonValue::Null));
+    }
+    ju["equips"] = eq;
+    return ju;
+}
+
+QJsonArray Synera::serializeBoardSide(bool heroSide) const
+{
+    QJsonArray arr;
+    for (int y = 0; y < Board::SIZE; ++y)
+        for (int x = 0; x < Board::SIZE; ++x) {
+            Unit* u = m_board.getUnitAt(x, y);
+            if (!u || u->isDead() || u->isDisappeared()) continue;
+            if (isHeroSide(u) != heroSide) continue;
+            arr.append(serializeOneUnit(u, x, y));
+        }
+    return arr;
+}
+
+QJsonArray Synera::serializeRecycle() const
+{
+    QJsonArray arr;
+    for (int i = 0; i < (int)m_recycleSlots.size(); ++i) {
+        Unit* u = m_recycleSlots[i];
+        if (!u || u->isDead() || u->isDisappeared()) continue;
+        QJsonObject ju = serializeOneUnit(u, i, 0);
+        ju["slot"] = i;
+        arr.append(ju);
+    }
+    return arr;
+}
+
+// 快照并清空回收槽（返回 JSON），随后 m_units.clear() 不再悬挂
+QJsonArray Synera::snapshotAndClearRecycle()
+{
+    QJsonArray arr = serializeRecycle();
+    for (auto& slot : m_recycleSlots) slot = nullptr;
+    return arr;
+}
+
+void Synera::restoreRecycle(const QJsonArray& arr)
+{
+    for (const QJsonValue& v : arr) {
+        QJsonObject ju = v.toObject();
+        Unit* u = createUnitFromPool(static_cast<UnitType>(ju["type"].toInt()),
+                                     true, ju["star"].toInt());
+        if (!u) continue;
+        const QJsonArray eq = ju["equips"].toArray();
+        for (int ei = 0; ei < static_cast<int>(EquipType::COUNT) && ei < eq.size(); ++ei) {
+            if (eq[ei].isString()) {
+                std::unique_ptr<Weapon> w(createWeaponByName(eq[ei].toString().toStdString()));
+                if (w) {
+                    Weapon* wp = w.get();
+                    m_pvpWeapons.push_back(std::move(w));
+                    u->equip(wp);
+                }
+            }
+        }
+        u->setMaxHp(ju["maxHp"].toInt());
+        u->setHp(ju["hp"].toInt());
+        int mana = ju["mana"].toInt();
+        while (u->getMana() < mana) u->gainMana();
+        int slot = ju["slot"].toInt(0);
+        if (slot >= 0 && slot < (int)m_recycleSlots.size())
+            m_recycleSlots[slot] = u;
+    }
+}
+
+// 录制回放：开战入口在单位全部就位后调用
+void Synera::recordReplay(const QString& label, unsigned seed)
+{
+    m_lastReplay.valid = true;
+    m_lastReplay.label = label;
+    m_lastReplay.seed = seed;
+    m_lastReplay.heroes = serializeBoardSide(true);
+    m_lastReplay.enemies = serializeBoardSide(false);
+    m_lastReplay.recycle = serializeRecycle();
+}
+
+// 回放上一局：快照当前准备状态 → 重建录像双方 → 同种子开战
+void Synera::startReplay()
+{
+    if (!m_lastReplay.valid) return;
+    if (m_phase != GamePhase::Preparation || m_gameOver) return;
+    if (m_gameMode == GameMode::PvP) return;   // 联机模式下不开回放（避免状态纠缠）
+
+    // 战前快照
+    m_preReplayState = ReplayData();
+    m_preReplayState.heroes = serializeBoardSide(true);
+    m_preReplayState.recycle = serializeRecycle();
+
+    // 清场重建录像双方（回收槽快照后置空防悬挂，回放结束再恢复）
+    m_pvpWeapons.clear();
+    const QJsonArray recycleSnap = snapshotAndClearRecycle();
+    m_units.clear();
+    m_board.clear();
+    placePvpLineup(QJsonObject({{"units", m_lastReplay.heroes}}), true, false);
+    placePvpLineup(QJsonObject({{"units", m_lastReplay.enemies}}), false, false);
+    restoreRecycle(recycleSnap);   // 备战席保留（不参战）
+
+    for (auto& up : m_units)
+        if (up) up->resetBattleStats();
+    std::srand(m_lastReplay.seed);
+
+    m_replayMode = true;
+    m_showLevelLoss = false;
+    for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
+    m_phase = GamePhase::Battle;
+    m_frameCounter = 0;
+    m_burnTickCount = 0;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 战斗加速/暂停
+// ═══════════════════════════════════════════════════════════════
+
+void Synera::setBattleSpeed(int speed)
+{
+    if (speed < 1) speed = 1;
+    if (speed > 3) speed = 3;
+    m_battleSpeed = speed;
+    m_gameTimer->setInterval(20 / speed);   // 20ms / 10ms / 7ms
 }
 
 bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
@@ -767,6 +1006,26 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
     Hero* h1 = dynamic_cast<Hero*>(draggedUnit);
     Hero* h2 = dynamic_cast<Hero*>(targetUnit);
     if (!h1 || !h2) return false;
+
+    // ── 终极合成：3 个不同职业的 3 星英雄 → 终极角色 ──
+    // 拖拽 A(3星) 到不同职业 B(3星) 上：自动寻找第三个不同职业的 3 星英雄
+    // （棋盘或回收槽），三者消耗合成终极（动态数值 = 素材基础值之和 × 比例）
+    if (draggedUnit->getStarLevel() >= 6 && targetUnit->getStarLevel() >= 6
+        && isRecruitableType(draggedUnit->getType())
+        && isRecruitableType(targetUnit->getType())
+        && draggedUnit->getType() != targetUnit->getType()) {
+        Unit* third = findThirdUltimateMaterial(draggedUnit, targetUnit);
+        if (third) {
+            synthesizeUltimate(draggedUnit, targetUnit, third, boardX, boardY);
+            return true;
+        }
+        return false;   // 素材不齐：既不普通合成也不吞并
+    }
+
+    // 终极角色不可参与普通升星
+    if (draggedUnit->getType() == UnitType::Ultimate
+        || targetUnit->getType() == UnitType::Ultimate)
+        return false;
 
     // Same name and same full-star level (starLevel/2)
     if (draggedUnit->getName() != targetUnit->getName()) return false;
@@ -805,6 +1064,40 @@ bool Synera::tryStarUp(int boardX, int boardY, Unit* draggedUnit)
 
 void Synera::checkAutoStarUp()
 {
+    // ── 终极自动合成：场上/回收槽凑齐 3 个不同职业的 3 星英雄即自动合成 ──
+    for (;;) {
+        Unit* a = nullptr;
+        Unit* b = nullptr;
+        auto full3 = [](Unit* u) {
+            return u && isHeroSide(u) && !u->isDead() && !u->isDisappeared()
+                   && u->getStarLevel() >= 6 && isRecruitableType(u->getType());
+        };
+        for (int y = 0; y < Board::SIZE && !a; ++y)
+            for (int x = 0; x < Board::SIZE; ++x) {
+                Unit* u = m_board.getUnitAt(x, y);
+                if (full3(u)) { a = u; break; }
+            }
+        for (Unit* u : m_recycleSlots)
+            if (full3(u) && (!a || u != a)) { if (!a) a = u; else { b = u; break; } }
+        if (a) {
+            for (int y = 0; y < Board::SIZE && !b; ++y)
+                for (int x = 0; x < Board::SIZE; ++x) {
+                    Unit* u = m_board.getUnitAt(x, y);
+                    if (full3(u) && u != a && u->getType() != a->getType()) { b = u; break; }
+                }
+        }
+        if (a && b) {
+            Unit* c = findThirdUltimateMaterial(a, b);
+            if (c) {
+                // 落点优先 a 的格子
+                Position ap = a->getPosition();
+                synthesizeUltimate(a, b, c, ap.x, ap.y);
+                continue;   // 继续检测（可能还有下一组）
+            }
+        }
+        break;   // 无素材
+    }
+
     struct UnitRef {
         Unit* unit;
         bool onBoard;
@@ -937,6 +1230,10 @@ void Synera::startBattle()
     // 自定义模式的战斗只能从自定义难度窗口发起
     if (m_gameMode == GameMode::Custom) return;
 
+    // 显式播种：战斗全程确定可复现（回放的前提）
+    const unsigned battleSeed = static_cast<unsigned>(std::rand());
+    std::srand(battleSeed);
+
     auto placeRandom = [this](Unit* eu) { placeEnemyRandom(eu); };
 
     // 每场战斗开始时重置所有单位的战斗统计
@@ -944,6 +1241,7 @@ void Synera::startBattle()
 
     if (m_gameMode == GameMode::Endless) {
         spawnEndlessWave();
+        recordReplay(QString::fromUtf8("无尽 第%1波").arg(m_endlessWave), battleSeed);
         m_showLevelLoss = false;
         for (int i = 0; i < 5; ++i) m_bondActive[i] = false;
         m_phase = GamePhase::Battle;
@@ -953,34 +1251,32 @@ void Synera::startBattle()
     }
 
     if (m_currentLevel <= 3) {
-        // 关卡 1-3：每种类型 N 个 0 星敌方
-        UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
-        for (int i = 0; i < 4; ++i) {
+        // 关卡 1-3：每种类型 N 个 0 星敌方（v0.23 起为全部 7 职业）
+        for (int i = 0; i < RECRUITABLE_COUNT; ++i) {
             for (int c = 0; c < m_currentLevel; ++c) {
-                Unit* eu = createUnitFromPool(types[i], false, 0);
+                Unit* eu = createUnitFromPool(RECRUITABLE_TYPES[i], false, 0);
                 placeRandom(eu);
             }
         }
     } else if (m_currentLevel == 4) {
         // 关卡 4：每种类型各 2 个 2 星敌方
-        UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < RECRUITABLE_COUNT; ++i) {
             for (int c = 0; c < 2; ++c) {
-                Unit* eu = createUnitFromPool(types[i], false, 4);
+                Unit* eu = createUnitFromPool(RECRUITABLE_TYPES[i], false, 4);
                 placeRandom(eu);
             }
         }
     } else if (m_currentLevel == 5) {
         // 关卡 5：每种类型各 1 个 3 星敌方 + 1 个 Boss
-        UnitType types[] = {UnitType::Warrior, UnitType::Mage, UnitType::Support, UnitType::Assassin};
-        for (int i = 0; i < 4; ++i) {
-            Unit* eu = createUnitFromPool(types[i], false, 6);
+        for (int i = 0; i < RECRUITABLE_COUNT; ++i) {
+            Unit* eu = createUnitFromPool(RECRUITABLE_TYPES[i], false, 6);
             placeRandom(eu);
         }
         Unit* boss = createUnitFromPool(UnitType::Boss, false, 6, true);
         placeRandom(boss);
     }
 
+    recordReplay(QString("Level %1").arg(m_currentLevel), battleSeed);
     m_showLevelLoss = false;
     for (int i = 0; i < 5; ++i) m_bondActive[i] = false; // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活
     m_phase = GamePhase::Battle;
@@ -994,6 +1290,32 @@ void Synera::startBattle()
 
 void Synera::endLevel(bool playerWon)
 {
+    // 战斗结束：倍速/暂停复位
+    m_battlePaused = false;
+    setBattleSpeed(1);
+
+    // ── 回放模式结算：只展示，不改任何经济/进度，并恢复战前准备状态 ──
+    if (m_replayMode) {
+        m_replayMode = false;
+        showBattleStats(playerWon);
+
+        // 清战斗单位 → 恢复战前棋盘英雄与回收槽
+        m_pvpWeapons.clear();
+        m_units.clear();
+        m_board.clear();
+        for (int i = 0; i < (int)m_recycleSlots.size(); ++i) m_recycleSlots[i] = nullptr;
+        if (!m_preReplayState.heroes.isEmpty())
+            placePvpLineup(QJsonObject({{"units", m_preReplayState.heroes}}), true, false);
+        restoreRecycle(m_preReplayState.recycle);
+
+        m_showLevelLoss = false;
+        m_phase = GamePhase::Preparation;
+        m_frameCounter = 0;
+        m_burnTickCount = 0;
+        m_pendingGold = 0;
+        return;
+    }
+
     // 清空战斗中的伤害/治疗显示残留
     m_hitEffects.clear();
     m_slashEffects.clear();
@@ -1434,7 +1756,7 @@ void Synera::gameLoop()
     m_frameClock.restart();
     Q_UNUSED(dt);
 
-    if (m_phase == GamePhase::Battle && !m_gameOver) {
+    if (m_phase == GamePhase::Battle && !m_gameOver && !m_battlePaused) {
         ++m_frameCounter;
         processCombatFrame();
     }
@@ -1658,7 +1980,7 @@ static void drawStar(QPainter& painter, const QPointF& center, double radius, in
 }
 
 // typeFillColor/typeLabel/unitTypeNameEn 移至 unitvisuals.h，与独立窗口共享
-static const char* UNIT_TYPE_NAMES[] = {"Warrior", "Mage", "Support", "Assassin"};
+// UNIT_TYPE_NAMES 已由 unitvisuals.h 的 unitTypeNameEn() 取代（支持全职业且无越界风险）
 
 // 统一计算单位装备框宽度：渲染与命中检测共用同一份计算，保证两边永远对齐。
 // 装备改用方形图标后宽度为常量（参数保留以兼容调用点签名）。
@@ -2240,9 +2562,9 @@ void Synera::renderHeroInfo(QPainter& painter)
         nameFont.setBold(true);
         painter.setFont(nameFont);
         painter.setPen(QColor(200, 200, 220));
-        painter.drawText(colorRect.right() + 6, panelRect.top() + 12, UNIT_TYPE_NAMES[(int)slot.type]);
+        painter.drawText(colorRect.right() + 6, panelRect.top() + 12, unitTypeNameEn(slot.type));
 
-        // 属性数据（数值直接引用各类的 BASE 常量，避免与实际数值漂移）
+        // 属性数据：全部来自 unitstats 数值表（新职业自动覆盖，无 switch）
         QFont statFont;
         statFont.setPixelSize(7);
         painter.setFont(statFont);
@@ -2251,25 +2573,15 @@ void Synera::renderHeroInfo(QPainter& painter)
         int sy = panelRect.top() + 36;   // 从立绘图块下方开始，避免叠压
         int lh = 11;
         int baseCost = heroCost(slot.type);
-        switch (slot.type) {
-            case UnitType::Boss:       // 面板不展示 Boss，防御性处理
-                break;
-            case UnitType::Warrior:
-                painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(WarriorHero::BASE_HP).arg(WarriorHero::BASE_ATK));
-                painter.drawText(sx, sy + lh, "Rng:1  Spd:60/120");
-                break;
-            case UnitType::Mage:
-                painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(MageHero::BASE_HP).arg(MageHero::BASE_ATK));
-                painter.drawText(sx, sy + lh, "Rng:4  Spd:60/120");
-                break;
-            case UnitType::Support:
-                painter.drawText(sx, sy,      QString("HP:%1  Heal:%2").arg(SupportHero::BASE_HP).arg(SupportHero::BASE_HEAL));
-                painter.drawText(sx, sy + lh, "Rng:2  Spd:60/120");
-                break;
-            case UnitType::Assassin:
-                painter.drawText(sx, sy,      QString("HP:%1  ATK:%2").arg(AssassinHero::BASE_HP).arg(AssassinHero::BASE_ATK));
-                painter.drawText(sx, sy + lh, "Rng:1  Spd:60/80");
-                break;
+        if (isRecruitableType(slot.type)) {
+            const UnitStats& st = statsOf(slot.type);
+            QString line1 = (st.heal > 0)
+                ? QString("HP:%1  Heal:%2").arg(st.hp).arg(st.heal)
+                : QString("HP:%1  ATK:%2").arg(st.hp).arg(st.atk);
+            painter.drawText(sx, sy, line1);
+            painter.drawText(sx, sy + lh,
+                             QString("Rng:%1  Spd:%2/%3")
+                                 .arg(st.range).arg(st.moveSpeed).arg(st.attackSpeed));
         }
         painter.setPen(QColor(255, 210, 50));
         painter.drawText(sx, sy + lh * 2, QString("Base: $%1").arg(baseCost));
@@ -2324,7 +2636,7 @@ void Synera::renderRecruitment(QPainter& painter)
             nameFont.setBold(true);
             painter.setFont(nameFont);
             painter.setPen(QColor(200, 200, 220));
-            painter.drawText(colorRect.right() + 4, rc.top() + 16, UNIT_TYPE_NAMES[(int)slot.type]);
+            painter.drawText(colorRect.right() + 4, rc.top() + 16, unitTypeNameEn(slot.type));
 
             // 价格（右侧）
             bool canBuy = (m_gold >= slot.price);
@@ -2519,6 +2831,8 @@ void Synera::tryEquipDrop()
 {
     // 联机对战不掉落装备：随机数调用会破坏双端锁步一致性
     if (m_pvpBattle) return;
+    // 回放模式不掉落：回放不产生任何经济变化
+    if (m_replayMode) return;
     // 去掉每关获取上限，仅限制掉落区容量
     if ((int)m_equipDrops.size() >= MAX_EQUIP_DROPS) return;
     int chance = 10 * m_currentLevel + 5; // 基础概率 +5%
@@ -2768,6 +3082,10 @@ void Synera::renderUI(QPainter& painter)
         lvlText = QString("Level %1 / %2").arg(m_currentLevel).arg(MAX_LEVEL);
     if (m_customBattle)
         lvlText += QString::fromUtf8(" (自定义)");
+    if (m_replayMode)
+        lvlText += QString::fromUtf8(" (回放)");
+    if (m_battlePaused)
+        lvlText += QString::fromUtf8(" [暂停]");
     painter.drawText(BOARD_OFFSET_X + BOARD_PIXEL_SIZE / 2 - 50, infoY, lvlText);
 
     // 金币 - 棋盘右上方
@@ -2825,6 +3143,58 @@ void Synera::renderUI(QPainter& painter)
     }
     painter.drawText(textX, BOARD_OFFSET_Y + 30, status);
 
+    // ── 回放上一局按钮（准备阶段，开始按钮下方）──
+    if (m_phase == GamePhase::Preparation && !m_gameOver
+        && m_lastReplay.valid && m_gameMode != GameMode::PvP && !m_replayMode) {
+        m_replayBtnRect = QRect(textX, BOARD_OFFSET_Y + 150, 150, 24);
+        painter.setBrush(QColor(60, 60, 90));
+        painter.setPen(QPen(QColor(150, 150, 210), 1));
+        painter.drawRoundedRect(m_replayBtnRect, 4, 4);
+        painter.setPen(QColor(200, 200, 240));
+        QFont rpFont;
+        rpFont.setPixelSize(9);
+        rpFont.setBold(true);
+        painter.setFont(rpFont);
+        painter.drawText(m_replayBtnRect, Qt::AlignCenter,
+                         QString::fromUtf8("回放：%1").arg(m_lastReplay.label));
+    } else {
+        m_replayBtnRect = QRect();
+    }
+
+    // ── 加速/暂停按钮（战斗阶段，开始按钮原位置）──
+    if (m_phase == GamePhase::Battle && !m_gameOver) {
+        const int btnW = 42, btnH = 26;
+        int bx = textX;
+        int by = BOARD_OFFSET_Y + 55;
+        m_pauseBtnRect = QRect(bx, by, btnW, btnH);
+        for (int i = 0; i < 3; ++i)
+            m_speedBtnRects[i] = QRect(bx + (btnW + 6) + i * (btnW + 4), by, btnW, btnH);
+
+        // 暂停按钮
+        bool paused = m_battlePaused;
+        painter.setBrush(paused ? QColor(150, 110, 40) : QColor(55, 90, 130));
+        painter.setPen(QPen(paused ? QColor(255, 200, 90) : QColor(120, 170, 230), 1));
+        painter.drawRoundedRect(m_pauseBtnRect, 4, 4);
+        painter.setPen(Qt::white);
+        QFont spdFont;
+        spdFont.setPixelSize(10);
+        spdFont.setBold(true);
+        painter.setFont(spdFont);
+        painter.drawText(m_pauseBtnRect, Qt::AlignCenter,
+                         paused ? QString::fromUtf8("继续") : QString::fromUtf8("暂停"));
+
+        // 倍速按钮
+        for (int i = 0; i < 3; ++i) {
+            bool active = (m_battleSpeed == i + 1);
+            painter.setBrush(active ? QColor(60, 130, 70) : QColor(55, 60, 70));
+            painter.setPen(QPen(active ? QColor(120, 220, 140) : QColor(100, 105, 115), 1));
+            painter.drawRoundedRect(m_speedBtnRects[i], 4, 4);
+            painter.setPen(active ? QColor(230, 255, 235) : QColor(170, 175, 185));
+            painter.drawText(m_speedBtnRects[i], Qt::AlignCenter,
+                             QString("%1x").arg(i + 1));
+        }
+    }
+
     // ── 开始战斗按钮 ──
     if (m_phase == GamePhase::Preparation && !m_gameOver) {
         int btnW = 150, btnH = 36;
@@ -2873,23 +3243,23 @@ void Synera::renderUI(QPainter& painter)
     painter.setPen(QColor(170, 170, 190));
     painter.drawText(textX, legendY, "Legend:");
 
-    struct { QString label; QColor color; } legend[] = {
-        {QString::fromUtf8("\342\227\217 Hero Warrior"),  typeFillColor(UnitType::Warrior, true)},
-        {QString::fromUtf8("\342\227\217 Hero Mage"),     typeFillColor(UnitType::Mage, true)},
-        {QString::fromUtf8("\342\227\217 Hero Support"),  typeFillColor(UnitType::Support, true)},
-        {QString::fromUtf8("\342\227\217 Hero Assassin"), typeFillColor(UnitType::Assassin, true)},
-        {QString::fromUtf8("\342\227\217 Enemy Warrior"),  typeFillColor(UnitType::Warrior, false)},
-        {QString::fromUtf8("\342\227\217 Enemy Mage"),     typeFillColor(UnitType::Mage, false)},
-        {QString::fromUtf8("\342\227\217 Enemy Support"),  typeFillColor(UnitType::Support, false)},
-        {QString::fromUtf8("\342\227\217 Enemy Assassin"), typeFillColor(UnitType::Assassin, false)},
-    };
-    for (int i = 0; i < 8; ++i) {
-        painter.setPen(legend[i].color);
-        painter.drawText(textX + 8, legendY + 20 + i * 18, legend[i].label);
+    // 图例：动态遍历全部职业（含新职业与终极），两列排布（左列英雄 / 右列敌方）
+    for (int t = 0; t < static_cast<int>(UnitType::COUNT); ++t) {
+        UnitType ut = static_cast<UnitType>(t);
+        int row = t / 2;
+        int col = t % 2;
+        int lx = textX + col * 108;
+        painter.setPen(typeFillColor(ut, col == 0));
+        QFont lgFont;
+        lgFont.setPixelSize(8);
+        painter.setFont(lgFont);
+        painter.drawText(lx, legendY + 20 + row * 16,
+                         QString((col == 0) ? "H-" : "E-") + unitTypeNameEn(ut));
     }
 
     // ── 存活单位列表（滚动：立绘图块 + 名字坐标 + HP/法力条）──
-    m_unitListLegendBottom = legendY + 20 + 8 * 18 + 16;
+    m_unitListLegendBottom = legendY + 16
+                             + ((static_cast<int>(UnitType::COUNT) + 1) / 2) * 16 + 8;
     painter.setPen(QColor(190, 190, 210));
     QFont listTitleFont;
     listTitleFont.setPixelSize(11);
@@ -3058,7 +3428,28 @@ void Synera::mousePressEvent(QMouseEvent *event)
                                && pos.y() < RECRUIT_VIEW_Y + RECRUIT_VIEW_H;
     const QPoint hitPos = inRecruitList ? QPoint(pos.x(), pos.y() + m_recruitScroll) : pos;
 
+    if (m_phase == GamePhase::Battle && !m_gameOver) {
+        // 加速/暂停（战斗阶段）
+        if (m_pauseBtnRect.contains(pos)) {
+            m_battlePaused = !m_battlePaused;
+            return;
+        }
+        for (int i = 0; i < 3; ++i) {
+            if (m_speedBtnRects[i].contains(pos)) {
+                setBattleSpeed(i + 1);
+                return;
+            }
+        }
+        return;   // 战斗阶段其它点击忽略（下方准备阶段逻辑不再执行）
+    }
+
     if (m_phase == GamePhase::Preparation) {
+        // 回放上一局
+        if (!m_replayBtnRect.isNull() && m_replayBtnRect.contains(pos)) {
+            startReplay();
+            return;
+        }
+
         // 开始战斗按钮
         if (m_startButtonRect.contains(pos)) {
             if (m_gameMode == GameMode::PvP)
@@ -3437,8 +3828,10 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
     for (Unit* eu : enemiesBefore) {
         if (eu->isDead() && !eu->hasReviveTriggered()) {
             caster->addStatKill();   // 战斗统计：技能击杀
-            m_pendingGold += enemyGoldValue(eu);
-            tryEquipDrop();
+            if (!m_replayMode) {
+                m_pendingGold += enemyGoldValue(eu);
+                tryEquipDrop();
+            }
         }
     }
 }
@@ -3801,7 +4194,10 @@ void Synera::processCombatFrame()
                     if (target->isDead() && !target->hasReviveTriggered()) {
                         u->addStatKill();       // 战斗统计：击杀
                         bool isEnemy = isEnemySide(target);
-                        if (isEnemy) { m_pendingGold += enemyGoldValue(target); tryEquipDrop(); }
+                        if (isEnemy && !m_replayMode) {
+                            m_pendingGold += enemyGoldValue(target);
+                            tryEquipDrop();
+                        }
                         m_board.removeUnit(target->getPosition().x, target->getPosition().y);
                     }
                     u->resetAttackTimer();
@@ -4020,43 +4416,70 @@ Unit* Synera::findNearestAlly(Unit* unit) const
 
 Position Synera::moveStepToward(const Position& from, const Position& to) const
 {
-    int dx = (to.x > from.x) ? 1 : (to.x < from.x) ? -1 : 0;
-    int dy = (to.y > from.y) ? 1 : (to.y < from.y) ? -1 : 0;
+    if (from == to) return from;
 
-    // 优先前进（纵向），其次左右，最后后退 — 避免双方错位一格时镜像循环卡死
-    if (dy != 0) {
-        Position next(from.x, from.y + dy);
-        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
-            return next;
+    // BFS 最短路径寻路（8×8 棋盘 = 64 格，开销可忽略）：
+    // 将目标格视为可通行（我们只要方向，到达附近即进入攻击范围判定），
+    // 其它占用格为障碍。解决了旧贪心"前方被堵就原地卡死"的问题。
+    const int N = Board::SIZE;
+    int dist[N][N];
+    Position parent[N][N];
+    for (int y = 0; y < N; ++y)
+        for (int x = 0; x < N; ++x) {
+            dist[y][x] = -1;
+            parent[y][x] = Position(-1, -1);
+        }
+
+    std::queue<Position> q;
+    q.push(from);
+    dist[from.y][from.x] = 0;
+
+    const int dirs[4][2] = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}};
+    bool found = false;
+    while (!q.empty() && !found) {
+        Position cur = q.front();
+        q.pop();
+        for (auto& d : dirs) {
+            Position next(cur.x + d[0], cur.y + d[1]);
+            if (next.x < 0 || next.x >= N || next.y < 0 || next.y >= N) continue;
+            if (dist[next.y][next.x] != -1) continue;
+            // 目标格视为可通行（走到旁边即可攻击）；其它占用格为障碍
+            if (m_board.isOccupied(next.x, next.y) && !(next == to)) continue;
+            dist[next.y][next.x] = dist[cur.y][cur.x] + 1;
+            parent[next.y][next.x] = cur;
+            if (next == to) { found = true; break; }
+            q.push(next);
+        }
     }
-    if (dx != 0) {
-        Position next(from.x + dx, from.y);
-        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
-            return next;
+
+    // 目标不可达 → 走向"离目标最近的可达格"
+    Position goal = to;
+    if (dist[to.y][to.x] == -1) {
+        int bestD = 1 << 30;
+        Position best = from;
+        for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+                if (dist[y][x] == -1) continue;
+                int d = manhattanDist(Position(x, y), to);
+                if (d < bestD) { bestD = d; best = Position(x, y); }
+            }
+        if (best == from) return from;   // 无路可走
+        goal = best;
     }
-    return from;
+
+    // 沿父指针回溯到第一步
+    Position cur = goal;
+    while (!(parent[cur.y][cur.x] == from)) {
+        cur = parent[cur.y][cur.x];
+        if (cur.x < 0) return from;   // 防御
+    }
+    return cur;
 }
 
 Position Synera::moveStepTowardAlly(const Position& from, const Position& to) const
 {
-    // 优先向右，其次向前/后，最后向左
-    if (to.x > from.x) {
-        Position next(from.x + 1, from.y);
-        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
-            return next;
-    }
-    if (to.y != from.y) {
-        int dy = (to.y > from.y) ? 1 : -1;
-        Position next(from.x, from.y + dy);
-        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
-            return next;
-    }
-    if (to.x < from.x) {
-        Position next(from.x - 1, from.y);
-        if (m_board.isValidPosition(next.x, next.y) && !m_board.isOccupied(next.x, next.y))
-            return next;
-    }
-    return from;
+    // 辅助单位与攻击单位共用 BFS 寻路（目标格视为可通行）
+    return moveStepToward(from, to);
 }
 
 bool Synera::canAttack(Unit* attacker, Unit* target) const

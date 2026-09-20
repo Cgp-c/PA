@@ -21,6 +21,10 @@ inline QColor typeFillColor(UnitType t, bool isHero)
         case UnitType::Support:  return isHero ? QColor(55, 170, 100)  : QColor(40, 140, 70);
         case UnitType::Assassin: return isHero ? QColor(200, 180, 40)  : QColor(160, 140, 20);
         case UnitType::Boss:     return isHero ? QColor(150, 40, 90)   : QColor(120, 25, 70);
+        case UnitType::Hunter:   return isHero ? QColor(70, 160, 170)  : QColor(45, 120, 130);
+        case UnitType::Knight:   return isHero ? QColor(150, 160, 180) : QColor(110, 120, 145);
+        case UnitType::Shaman:   return isHero ? QColor(90, 190, 80)   : QColor(60, 150, 55);
+        case UnitType::Ultimate: return isHero ? QColor(250, 200, 70)  : QColor(200, 150, 40);
     }
     return QColor(128, 128, 128);
 }
@@ -34,6 +38,10 @@ inline QString typeLabel(UnitType t)
         case UnitType::Support:  return QString::fromUtf8("辅");
         case UnitType::Assassin: return QString::fromUtf8("刺");
         case UnitType::Boss:     return QString::fromUtf8("王");
+        case UnitType::Hunter:   return QString::fromUtf8("射");
+        case UnitType::Knight:   return QString::fromUtf8("骑");
+        case UnitType::Shaman:   return QString::fromUtf8("萨");
+        case UnitType::Ultimate: return QString::fromUtf8("终");
     }
     return QString("?");
 }
@@ -47,6 +55,10 @@ inline const char* unitTypeNameEn(UnitType t)
         case UnitType::Support:  return "Support";
         case UnitType::Assassin: return "Assassin";
         case UnitType::Boss:     return "Boss";
+        case UnitType::Hunter:   return "Hunter";
+        case UnitType::Knight:   return "Knight";
+        case UnitType::Shaman:   return "Shaman";
+        case UnitType::Ultimate: return "Ultimate";
     }
     return "?";
 }
@@ -56,7 +68,7 @@ inline const char* unitTypeNameEn(UnitType t)
 // 之后直接命中静态缓存；加载失败保持空 QPixmap，由调用方回退色块。
 inline const QPixmap& unitPortrait(UnitType t)
 {
-    static QPixmap cache[static_cast<int>(UnitType::Boss) + 1];
+    static QPixmap cache[static_cast<int>(UnitType::Ultimate) + 1];
     static bool tried = false;
     if (!tried) {
         tried = true;   // 失败也只尝试一次，避免每帧重复磁盘 IO
@@ -65,14 +77,18 @@ inline const QPixmap& unitPortrait(UnitType t)
         //   战士=Pirate(持械近战)  法师=Witch(施法者)
         //   辅助=GreenGoo(治疗绿)  刺客=Bird(敏捷)  Boss=WailingPrince
         static const char* files[] = {
-            "World01_007_Pirate.png",        // Warrior
-            "World01_006_Witch.png",         // Mage
-            "World01_001_GreenGoo.png",      // Support
-            "World01_003_Bird.png",          // Assassin
-            "World01_004_WailingPrince.png", // Boss
+            "World01_007_Pirate.png",         // Warrior
+            "World01_006_Witch.png",          // Mage
+            "World01_001_GreenGoo.png",       // Support
+            "World01_003_Bird.png",           // Assassin
+            "World01_004_WailingPrince.png",  // Boss
+            "World04_002_ ScoutMachine.png",  // Hunter（文件名含空格，保持原名）
+            "World01_005_Shello.png",         // Knight
+            "World01_002_Salamander.png",     // Shaman
+            "World04_003_ Outlaw.png",        // Ultimate（文件名含空格）
         };
         static_assert(sizeof(files) / sizeof(files[0])
-                      == static_cast<int>(UnitType::Boss) + 1, "portrait table size");
+                      == static_cast<int>(UnitType::Ultimate) + 1, "portrait table size");
 
         const QString roots[] = {
             QStringLiteral("src/unit/"),
@@ -80,7 +96,7 @@ inline const QPixmap& unitPortrait(UnitType t)
             QCoreApplication::applicationDirPath() + QStringLiteral("/src/unit/"),
             QCoreApplication::applicationDirPath() + QStringLiteral("/../src/unit/"),
         };
-        for (int i = 0; i <= static_cast<int>(UnitType::Boss); ++i)
+        for (int i = 0; i <= static_cast<int>(UnitType::Ultimate); ++i)
             for (const QString& root : roots)
                 if (cache[i].load(root + files[i])) break;
     }
@@ -93,9 +109,9 @@ inline const QPixmap& unitPortrait(UnitType t)
 inline void drawUnitChip(QPainter& painter, const QRect& rect, UnitType t, bool isHero,
                          int radius = 4)
 {
-    QColor border = (t == UnitType::Boss) ? QColor(255, 200, 60)
-                  : isHero                 ? QColor(100, 170, 255)
-                                           : QColor(235, 90, 90);
+    QColor border = (t == UnitType::Boss || t == UnitType::Ultimate) ? QColor(255, 200, 60)
+                  : isHero                                           ? QColor(100, 170, 255)
+                                                                   : QColor(235, 90, 90);
     const QPixmap& pm = unitPortrait(t);
     if (!pm.isNull()) {
         painter.setBrush(QColor(22, 14, 26));

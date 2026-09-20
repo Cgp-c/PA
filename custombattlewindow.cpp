@@ -1,5 +1,6 @@
 #include "custombattlewindow.h"
 #include "unitvisuals.h"
+#include "unitstats.h"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -82,14 +83,19 @@ QString CustomBattleWindow::typeButtonText(int type)
         case UnitType::Support:  return QString::fromUtf8("辅助");
         case UnitType::Assassin: return QString::fromUtf8("刺客");
         case UnitType::Boss:     return QString::fromUtf8("Boss");
+        case UnitType::Hunter:   return QString::fromUtf8("射手");
+        case UnitType::Knight:   return QString::fromUtf8("骑士");
+        case UnitType::Shaman:   return QString::fromUtf8("萨满");
+        case UnitType::Ultimate: return QString::fromUtf8("终极");
+        case UnitType::COUNT:    break;
     }
     return "?";
 }
 
 QString CustomBattleWindow::starButtonText(int type, int star)
 {
-    if (static_cast<UnitType>(type) == UnitType::Boss)
-        return QString::fromUtf8("—");   // Boss 属性固定，无星级
+    if (isStarlessType(static_cast<UnitType>(type)))
+        return QString::fromUtf8("—");   // Boss/终极属性固定，无星级
     return QString::fromUtf8("%1星").arg(star);
 }
 
@@ -177,7 +183,7 @@ void CustomBattleWindow::paintEvent(QPaintEvent* event)
         QRect starRect(bx, y, 76, CBW_ROW_H);
         m_starRects.push_back(starRect);
         bx += starRect.width() + 8;
-        bool isBoss = static_cast<UnitType>(spec.type) == UnitType::Boss;
+        bool isBoss = isStarlessType(static_cast<UnitType>(spec.type));
         painter.setBrush(isBoss ? QColor(50, 50, 60) : QColor(45, 55, 90));
         painter.setPen(QPen(isBoss ? QColor(90, 90, 100) : QColor(110, 140, 220), 1));
         painter.drawRoundedRect(starRect, 5, 5);
@@ -297,18 +303,18 @@ void CustomBattleWindow::mousePressEvent(QMouseEvent* event)
     for (int i = 0; i < n && i < MAX_ROWS; ++i) {
         EnemySpec& spec = m_specs[i];
 
-        // 类型循环：战士→法师→辅助→刺客→Boss→战士
+        // 类型循环：全部类型（含新职业与终极）
         if (i < m_typeRects.size() && m_typeRects[i].contains(pos)) {
-            spec.type = (spec.type + 1) % (static_cast<int>(UnitType::Boss) + 1);
-            if (static_cast<UnitType>(spec.type) == UnitType::Boss)
-                spec.star = 0;   // Boss 无星级
+            spec.type = (spec.type + 1) % static_cast<int>(UnitType::COUNT);
+            if (isStarlessType(static_cast<UnitType>(spec.type)))
+                spec.star = 0;   // Boss/终极 无星级
             update();
             return;
         }
 
-        // 星级循环 0→3（Boss 忽略）
+        // 星级循环 0→3（Boss/终极忽略）
         if (i < m_starRects.size() && m_starRects[i].contains(pos)) {
-            if (static_cast<UnitType>(spec.type) != UnitType::Boss)
+            if (!isStarlessType(static_cast<UnitType>(spec.type)))
                 spec.star = (spec.star + 1) % 4;
             update();
             return;

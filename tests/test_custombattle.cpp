@@ -64,22 +64,32 @@ int main(int argc, char** argv)
     clickAt(&w, MINUS_X, ROW0_Y);
     check(w.specs()[0].count == 30, "minus x2: count == 30");
 
-    // ── 类型循环：战士→法师→辅助→刺客→Boss ──
-    clickAt(&w, TYPE_X, ROW0_Y);
-    check(w.specs()[0].type == (int)UnitType::Mage, "type cycle 1: Mage");
-    clickAt(&w, TYPE_X, ROW0_Y);
-    check(w.specs()[0].type == (int)UnitType::Support, "type cycle 2: Support");
-    clickAt(&w, TYPE_X, ROW0_Y);
-    clickAt(&w, TYPE_X, ROW0_Y);
-    check(w.specs()[0].type == (int)UnitType::Boss, "type cycle 4: Boss");
+    // ── 类型循环：战士→法师→辅助→刺客→Boss→射手→骑士→萨满→终极→战士 ──
+    const int cycleAll[] = {(int)UnitType::Mage, (int)UnitType::Support,
+                            (int)UnitType::Assassin, (int)UnitType::Boss,
+                            (int)UnitType::Hunter, (int)UnitType::Knight,
+                            (int)UnitType::Shaman, (int)UnitType::Ultimate,
+                            (int)UnitType::Warrior};
+    for (int step = 0; step < 9; ++step) {
+        clickAt(&w, TYPE_X, ROW0_Y);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "type cycle %d: type == %d", step + 1, cycleAll[step]);
+        check(w.specs()[0].type == cycleAll[step], buf);
+    }
 
-    // ── Boss 星级锁定：点击星级不应变化 ──
+    // ── 无星级类型锁定（Boss 与终极）──
+    for (int i = 0; i < 4; ++i) clickAt(&w, TYPE_X, ROW0_Y);   // Warrior(0) +4 → Boss(4)
+    check(w.specs()[0].type == (int)UnitType::Boss, "at Boss for star lock test");
     clickAt(&w, STAR_X, ROW0_Y);
     clickAt(&w, STAR_X, ROW0_Y);
     check(w.specs()[0].star == 0, "Boss: star locked at 0");
+    for (int i = 0; i < 4; ++i) clickAt(&w, TYPE_X, ROW0_Y);   // Boss → 射手→骑士→萨满→终极(8)
+    check(w.specs()[0].type == (int)UnitType::Ultimate, "at Ultimate for star lock test");
+    clickAt(&w, STAR_X, ROW0_Y);
+    check(w.specs()[0].star == 0, "Ultimate: star locked at 0");
 
     // ── 普通职业星级循环 0→3 ──
-    clickAt(&w, TYPE_X, ROW0_Y);              // Boss → Warrior
+    clickAt(&w, TYPE_X, ROW0_Y);              // Ultimate → Warrior
     for (int i = 0; i < 5; ++i) clickAt(&w, STAR_X, ROW0_Y);
     check(w.specs()[0].star == 1, "star cycle x5 (0->3->0->1): star == 1");
 

@@ -1,0 +1,18 @@
+{
+  "_说明": "单位数值表：改这里调平衡无需重编译。缺字段自动回退内置默认值。hp/atk/heal 为 0 星基础值，实际 = 基础 × (整星+1)",
+  "warrior":  { "name": "Warrior",  "hp": 100, "atk": 20, "range": 1, "moveSpeed": 60,  "attackSpeed": 120, "skillDmg": 80, "cost": 100, "sellPrice": 100, "goldValue": 80 },
+  "mage":     { "name": "Mage",     "hp": 50,  "atk": 10, "range": 4, "moveSpeed": 60,  "attackSpeed": 120, "skillDmg": 10, "cost": 80,  "sellPrice": 80,  "goldValue": 60 },
+  "support":  { "name": "Support",  "hp": 80,  "atk": 0,  "heal": 20, "range": 2, "moveSpeed": 60,  "attackSpeed": 120, "skillDmg": 30, "cost": 50,  "sellPrice": 50,  "goldValue": 30 },
+  "assassin": { "name": "Assassin", "hp": 15,  "atk": 50, "range": 1, "moveSpeed": 60,  "attackSpeed": 80,  "skillDmg": 80, "cost": 60,  "sellPrice": 60,  "goldValue": 30 },
+  "hunter":   { "name": "Hunter",   "hp": 70,  "atk": 30, "range": 3, "moveSpeed": 60,  "attackSpeed": 100, "skillDmg": 80, "cost": 90,  "sellPrice": 90,  "goldValue": 70 },
+  "knight":   { "name": "Knight",   "hp": 220, "atk": 12, "range": 1, "moveSpeed": 90,  "attackSpeed": 120, "skillDmg": 80, "cost": 110, "sellPrice": 110, "goldValue": 90 },
+  "shaman":   { "name": "Shaman",   "hp": 60,  "atk": 12, "range": 3, "moveSpeed": 60,  "attackSpeed": 120, "skillDmg": 60, "cost": 85,  "sellPrice": 85,  "goldValue": 65 },
+  "boss":     { "name": "Boss",     "hp": 500, "atk": 20, "range": 1, "moveSpeed": 120, "attackSpeed": 120, "skillDmg": 30, "cost": 0,   "sellPrice": 0,   "goldValue": 200 },
+  "ultimate": {
+    "_说明": "终极角色：HP/ATK = 三个素材三星基础值之和 × 比例（动态合成）；defaultHp/Atk 为无合成上下文时的默认档",
+    "hpRatio": 0.8, "atkRatio": 0.8,
+    "defaultHp": 900, "defaultAtk": 220,
+    "range": 2, "moveSpeed": 60, "attackSpeed": 110,
+    "skillDmg": 120, "sellPrice": 500
+  }
+}

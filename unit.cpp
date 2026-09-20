@@ -1,4 +1,5 @@
 #include "unit.h"
+#include "unitstats.h"
 #include "board.h"
 #include <algorithm>
 #include <cstdlib>
@@ -143,6 +144,83 @@ void Unit::gainMana2()
 }
 void Unit::resetMana2() { m_mana2 = 0; }
 
+// ─── 新职业技能（v0.23）────────────────────────────────────
+
+// 射手技能：三连箭 —— 对最近敌方连射 3 箭，每箭 70% 技能伤害
+void Unit::hunterSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    (void)board;
+    Unit* best = nullptr;
+    int bestDist = 999;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        int d = manhattanDist(m_pos, u->getPosition());
+        if (d < bestDist) { bestDist = d; best = u; }
+    }
+    if (!best) return;
+    int perArrow = static_cast<int>(statsOf(m_type).skillDmg
+                                    * (1 + (m_starLevel / 2) * 0.5) * 0.7);
+    if (perArrow < 1) perArrow = 1;
+    for (int i = 0; i < 3 && !best->isDead(); ++i)
+        best->takeDamage(perArrow);
+}
+
+// 骑士技能：盾击 —— 对目标造成 2×攻击，并回复自身 20% 最大生命
+void Unit::knightSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    Unit* best = nullptr;
+    int bestDist = 999;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        int d = manhattanDist(m_pos, u->getPosition());
+        if (d < bestDist) { bestDist = d; best = u; }
+    }
+    if (best) {
+        best->takeDamage(getAttackDamage() * 2);
+        if (best->isDead())
+            board.removeUnit(best->getPosition().x, best->getPosition().y);
+    }
+    heal(getMaxHp() / 5);
+}
+
+// 萨满技能：腐蚀之种 —— 最近敌方及其相邻敌人中毒（绿色 DOT，4 回合）
+void Unit::shamanSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    (void)board;
+    Unit* best = nullptr;
+    int bestDist = 999;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        int d = manhattanDist(m_pos, u->getPosition());
+        if (d < bestDist) { bestDist = d; best = u; }
+    }
+    if (!best) return;
+    const int dotDmg = statsOf(m_type).skillDmg + m_starLevel * 5;
+    best->applyBurning(4, dotDmg, /*green=*/true);
+    // 相邻（上下左右）敌方一并中毒
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        if (manhattanDist(u->getPosition(), best->getPosition()) == 1)
+            u->applyBurning(4, dotDmg, /*green=*/true);
+    }
+}
+
+// 终极技能：天罚 —— 对全场敌方造成大量伤害
+void Unit::ultimateSkill(Board& board, std::vector<Unit*>& allUnits)
+{
+    (void)board;
+    const int dmg = ultimateStats().skillDmg;
+    for (Unit* u : allUnits) {
+        if (u == this || u->isDead() || u->isDisappeared()) continue;
+        if (!isOpponentOf(u)) continue;
+        u->takeDamage(dmg);
+    }
+}
+
 void Unit::useSkill2(Board& board, std::vector<Unit*>& allUnits)
 {
     (void)board; (void)allUnits;
@@ -153,8 +231,9 @@ void Unit::useSkill2(Board& board, std::vector<Unit*>& allUnits)
 bool Unit::isBurning() const { return m_burning; }
 int Unit::getBurningTurns() const { return m_burningTurns; }
 
-void Unit::applyBurning(int turns, int damage)
+void Unit::applyBurning(int turns, int damage, bool green)
 {
+    m_dotGreen = green;
     m_burning = true;
     m_burningTurns = turns;
     m_burningDamage = damage;
