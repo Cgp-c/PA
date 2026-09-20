@@ -1432,8 +1432,18 @@ void Synera::endLevel(bool playerWon)
             rf.close();
         }
 
+        const bool localWon = m_pvpIsHost ? hostWon : !hostWon;
         m_pvpBattle = false;
         resetPvpRound();   // 回到联机准备阶段（连接与比分保留）
+
+        // ┊败者平衡机制：败方随机获得一件基础装备（缩小装备差距）┊
+        // 注意：必须在 resetPvpRound 之后执行（initGame 会清空 m_equipDrops）
+        if (!localWon && (int)m_equipDrops.size() < MAX_EQUIP_DROPS) {
+            const char* basicNames[5] = {"Iron Sword", "Chain Mail",
+                                         "Speed Gloves", "Blue Crystal", "Warhorse"};
+            Weapon* comp = createWeaponByName(basicNames[std::rand() % 5]);
+            if (comp) m_equipDrops.push_back(comp);
+        }
         return;
     }
 

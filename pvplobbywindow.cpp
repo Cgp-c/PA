@@ -139,8 +139,9 @@ void PvpLobbyWindow::onHostNewConnection()
 {
     if (m_socket || !m_server) return;
     m_socket = m_server->nextPendingConnection();
-    // 服务器保持监听（安全关闭由析构/closePvpConnection处理；
-    // 此处立即关闭会影响已建立的socket连接）
+    // 停止监听（close 只是不再接受新连接，不影响已建立的 socket；
+    // 不销毁 server 对象以免连带析构其子对象）
+    if (m_server) m_server->close();
     onSocketConnected();
 }
 
@@ -178,6 +179,9 @@ QTcpSocket* PvpLobbyWindow::takeSocket()
 {
     QTcpSocket* s = m_socket;
     m_socket = nullptr;   // 所有权移交，避免双重释放
+    // 断开大厅对 socket 的全部信号（防止移交后 errorOccurred
+    // 触发 onSocketError 对已移交 socket 调 deleteLater 导致 UAF）
+    if (s) s->disconnect(this);
     return s;
 }
 
