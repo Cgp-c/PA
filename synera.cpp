@@ -627,7 +627,8 @@ void Synera::initGame()
     m_ghostEffects.clear();
     m_pendingDamageEvents.clear();
 
-    // 初始化英雄信息面板：4 种类型
+    // 初始化英雄信息面板：全部可招募职业（先清空防重复追加）
+    m_shop.clear();
     for (int i = 0; i < RECRUITABLE_COUNT; ++i)
         m_shop.push_back({RECRUITABLE_TYPES[i], 0});
 
