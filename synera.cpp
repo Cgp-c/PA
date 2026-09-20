@@ -2152,6 +2152,21 @@ void Synera::renderUnits(QPainter& painter)
             painter.setBrush(QColor(50, 120, 240));
             painter.drawRoundedRect(manaBarFill, 1, 1);
 
+            // 第二法力条（Boss 进阶技能充能，有 maxMana2 的单位显示）
+            if (unit->getMaxMana2() > 0) {
+                int mana2H = 3;
+                int mana2Y = manaBarBg.top() - mana2H - 1;
+                double m2r = (double)unit->getMana2() / unit->getMaxMana2();
+                if (m2r > 1.0) m2r = 1.0;
+                QRect m2Bg(ur.left() + 2, mana2Y, ur.width() - 4, mana2H);
+                painter.setBrush(QColor(15, 15, 30));
+                painter.setPen(Qt::NoPen);
+                painter.drawRoundedRect(m2Bg, 1, 1);
+                QRect m2Fill(m2Bg.left(), mana2Y, (int)(m2Bg.width() * m2r), mana2H);
+                painter.setBrush(QColor(200, 60, 180));   // 紫色=进阶技能
+                painter.drawRoundedRect(m2Fill, 1, 1);
+            }
+
             // 装备框（右侧5格，图标显示）
             if (isHero) {
                 int boxH = 10, boxGap = 1;
@@ -2180,12 +2195,12 @@ void Synera::renderUnits(QPainter& painter)
                 }
             }
 
-            // 星数图标（仅英雄显示，在格子左侧）
+            // 星数图标（仅英雄显示，格子左上角竖排，避开 HP 条和名字）
             if (isHero) {
-                double starR = 4.0;
-                double starSpacing = 12.0;
-                double startY = rc.center().y() - starSpacing;
-                double starX = rc.left() + starR + 4;
+                double starR = 3.5;
+                double starSpacing = 10.0;
+                double startY = rc.top() + 14;
+                double starX = rc.left() + starR + 2;
                 int halfStars = unit->getStarLevel();
                 for (int s = 0; s < 3; ++s) {
                     QPointF starCenter(starX, startY + s * starSpacing);
@@ -3174,7 +3189,8 @@ void Synera::renderUI(QPainter& painter)
     // ── 回放上一局按钮（准备阶段，开始按钮下方）──
     if (m_phase == GamePhase::Preparation && !m_gameOver
         && m_lastReplay.valid && m_gameMode != GameMode::PvP && !m_replayMode) {
-        m_replayBtnRect = QRect(textX, BOARD_OFFSET_Y + 150, 150, 24);
+        // 放在图例下方（图例占 legendY+16..+88 区域），避免与图例重叠
+        m_replayBtnRect = QRect(textX, BOARD_OFFSET_Y + 175, 150, 22);
         painter.setBrush(QColor(60, 60, 90));
         painter.setPen(QPen(QColor(150, 150, 210), 1));
         painter.drawRoundedRect(m_replayBtnRect, 4, 4);
@@ -3752,7 +3768,7 @@ void Synera::processDrop(const QPoint& mousePos)
 
     // ── 卖回英雄信息面板 ──
     for (int i = 0; i < (int)m_shop.size(); ++i) {
-        QRect infoRect(LEFT_PANEL_X, INFO_PANEL_Y + i * (INFO_PANEL_H + INFO_SPACING),
+        QRect infoRect(LEFT_PANEL_X, INFO_PANEL_Y + i * (INFO_PANEL_H + INFO_SPACING) - m_infoScroll,
                        LEFT_PANEL_W, INFO_PANEL_H);
         if (infoRect.contains(mousePos) && m_shop[i].type == m_draggedUnit->getType()) {
             m_gold += heroCost(m_shop[i].type); // 返还基础价格
@@ -4215,16 +4231,34 @@ void Synera::processCombatFrame()
 
                     // 命中特效：战士=斩击，刺客=快速斩击，法师=火球飞行弹道
                     Position tp = target->getPosition();
+                    int atkRange = u->getAttackRange();
                     if (u->getType() == UnitType::Warrior) {
-                        m_slashEffects.push_back({
-                            pos.x, pos.y, tp.x, tp.y,
-                            0, m_frameCounter, SLASH_EFFECT_FRAMES
-                        });
+                        if (atkRange >= 2) {
+                            // 射程≥2：改用弹道（避免刀光弧悬空在两格之间）
+                            m_projectileEffects.push_back({
+                                pos.x, pos.y, tp.x, tp.y, 0,
+                                m_frameCounter,
+                                14 + 4 * manhattanDist(pos, tp)
+                            });
+                        } else {
+                            m_slashEffects.push_back({
+                                pos.x, pos.y, tp.x, tp.y,
+                                0, m_frameCounter, SLASH_EFFECT_FRAMES
+                            });
+                        }
                     } else if (u->getType() == UnitType::Assassin) {
-                        m_slashEffects.push_back({
-                            pos.x, pos.y, tp.x, tp.y,
-                            2, m_frameCounter, ASSASSIN_SLASH_FRAMES
-                        });
+                        if (atkRange >= 2) {
+                            m_projectileEffects.push_back({
+                                pos.x, pos.y, tp.x, tp.y, 1,
+                                m_frameCounter,
+                                12 + 4 * manhattanDist(pos, tp)
+                            });
+                        } else {
+                            m_slashEffects.push_back({
+                                pos.x, pos.y, tp.x, tp.y,
+                                2, m_frameCounter, ASSASSIN_SLASH_FRAMES
+                            });
+                        }
                     } else if (u->getType() == UnitType::Mage) {
                         m_projectileEffects.push_back({
                             pos.x, pos.y, tp.x, tp.y,
@@ -4924,7 +4958,7 @@ void Synera::renderBonds(QPainter& painter)
     descFont.setPixelSize(6);
 
     for (int i = 0; i < 8; ++i) {
-        int by = bondStartY + i * 17;   // 单行紧凑排版，5 行共 85px
+        int by = bondStartY + i * 13;   // 单行超紧凑排版，8 行共 104px
         int boxSize = 8;
         QRect boxRect(bondX, by, boxSize, boxSize);
 
