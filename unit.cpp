@@ -534,7 +534,8 @@ void Unit::mageSkill(Board& board, std::vector<Unit*>& allUnits)
 void Unit::supportSkill(Board& board, std::vector<Unit*>& allUnits)
 {
     (void)board;
-    int healAmt = static_cast<int>(statsOf(m_type).skillDmg * (1 + (m_starLevel / 2) * 0.5));
+    int healAmt = static_cast<int>(statsOf(m_type).skillDmg * (1 + (m_starLevel / 2) * 0.5)
+                                    * getBondHealMult());   // 生生不息羁绊对技能治疗同样生效
     // 仅治疗友方（同阵营），按 HP 从低到高取前 2 名
     std::vector<Unit*> sorted;
     for (Unit* u : allUnits) {

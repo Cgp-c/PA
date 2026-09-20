@@ -806,9 +806,11 @@ void Synera::collectEquipsInto(Unit* dst, std::vector<Unit*> sources)
             Weapon* w = src->getEquip(et);
             if (!w) continue;
             if (!keep) {
-                // 直接转移指针（源单位即将销毁，装备归新单位语境使用）
-                dst->equip(w);
-                keep = w;
+                if (dst->equip(w)) {
+                    keep = w;
+                } else {
+                    m_equipDrops.push_back(w);   // 装备位满：进掉落区不丢失
+                }
             } else {
                 m_equipDrops.push_back(w);
             }
@@ -843,19 +845,19 @@ void Synera::synthesizeUltimate(Unit* a, Unit* b, Unit* c, int placeX, int place
     collectEquipsInto(ult, {a, b, c});
     ult->setHp(ult->getMaxHp());
 
-    // 落点：目标格（若被占则就近）
+    // 先从棋盘移除全部素材（释放格子），再放置终极角色
+    Position ap = a->getPosition();
+    Position bp = b->getPosition();
+    if (m_board.getUnitAt(ap.x, ap.y) == a) m_board.removeUnit(ap.x, ap.y);
+    if (m_board.getUnitAt(bp.x, bp.y) == b) m_board.removeUnit(bp.x, bp.y);
+
+    // 落点：优先素材原格（若仍被占则就近）
     if (!m_board.placeUnit(ult, placeX, placeY)) {
         for (int y = Board::SIZE - 1; y >= Board::SIZE / 2; --y)
             for (int x = 0; x < Board::SIZE; ++x)
                 if (m_board.placeUnit(ult, x, y)) goto ult_placed;
     }
     ult_placed:
-
-    // 从棋盘移除素材 a/b（c 已移除），防止幽灵格占用
-    Position ap = a->getPosition();
-    Position bp = b->getPosition();
-    if (m_board.getUnitAt(ap.x, ap.y) == a) m_board.removeUnit(ap.x, ap.y);
-    if (m_board.getUnitAt(bp.x, bp.y) == b) m_board.removeUnit(bp.x, bp.y);
 
     // 消耗三个素材
     a->setDisappeared(true);
@@ -942,8 +944,7 @@ void Synera::restoreRecycle(const QJsonArray& arr)
         }
         u->setMaxHp(ju["maxHp"].toInt());
         u->setHp(ju["hp"].toInt());
-        int mana = ju["mana"].toInt();
-        while (u->getMana() < mana) u->gainMana();
+        u->setMana(ju["mana"].toInt());
         int slot = ju["slot"].toInt(0);
         if (slot >= 0 && slot < (int)m_recycleSlots.size())
             m_recycleSlots[slot] = u;
@@ -2209,9 +2210,17 @@ void Synera::renderUnits(QPainter& painter)
                     int a = (int)(200 * std::sin(phase * 3.14159));   // 上升过程先亮后暗
                     if (a <= 0) continue;
                     QRadialGradient fg(QPointF(fx, fy), fr + 1.5);
-                    fg.setColorAt(0.0, QColor(255, 230, 120, a));
-                    fg.setColorAt(0.55, QColor(255, 100, 40, a));
-                    fg.setColorAt(1.0, QColor(200, 30, 20, 0));
+                    if (unit->isGreenDot()) {
+                        // 萨满毒：绿色火苗
+                        fg.setColorAt(0.0, QColor(230, 255, 220, a));
+                        fg.setColorAt(0.55, QColor(120, 220, 70, a));
+                        fg.setColorAt(1.0, QColor(30, 130, 20, 0));
+                    } else {
+                        // 法师燃烧：红橙火苗
+                        fg.setColorAt(0.0, QColor(255, 230, 120, a));
+                        fg.setColorAt(0.55, QColor(255, 100, 40, a));
+                        fg.setColorAt(1.0, QColor(200, 30, 20, 0));
+                    }
                     painter.setPen(Qt::NoPen);
                     painter.setBrush(fg);
                     painter.drawEllipse(QPointF(fx, fy), fr + 1.5, fr + 1.5);

@@ -99,7 +99,7 @@ void BossEnemy::useSkill(Board& board, std::vector<Unit*>& allUnits)
     for (Unit* u : allUnits) {
         if (u == this || u->isDead() || u->isDisappeared()) continue;
         if (!isOpponentOf(u)) continue;
-        u->takeDamage(10);
+        u->takeDamage(statsOf(UnitType::Boss).skillDmg / 3);
     }
 }
 
@@ -113,6 +113,6 @@ void BossEnemy::useSkill2(Board& board, std::vector<Unit*>& allUnits)
         int dx = std::abs(u->getPosition().x - getPosition().x);
         int dy = std::abs(u->getPosition().y - getPosition().y);
         if (dx == dy || dx == 0 || dy == 0)
-            u->takeDamage(30);
+            u->takeDamage(statsOf(UnitType::Boss).skillDmg);
     }
 }

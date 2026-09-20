@@ -52,8 +52,8 @@ public:
 class BossEnemy : public Enemy {
 public:
     BossEnemy(int x = 0, int y = 0);
-    int getAttackRange() const override { return statsOf(UnitType::Boss).range; }
-    int getAttackDamage() const override { return statsOf(UnitType::Boss).atk; }
+    int getAttackRange() const override { return statsOf(UnitType::Boss).range + getBondRangeBonus(); }
+    int getAttackDamage() const override { return statsOf(UnitType::Boss).atk + getBondAtkBonus(); }
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override;
     void useSkill2(Board& board, std::vector<Unit*>& allUnits) override;
 };
@@ -88,8 +88,8 @@ class UltimateEnemy : public Enemy {
 public:
     // atk 默认取数据表默认档（自定义难度直选时）
     explicit UltimateEnemy(int atk = ultimateStats().defaultAtk, int x = 0, int y = 0);
-    int getAttackRange() const override { return ultimateStats().range; }
-    int getAttackDamage() const override { return m_ultimateAtk; }
+    int getAttackRange() const override { return ultimateStats().range + getBondRangeBonus(); }
+    int getAttackDamage() const override { return m_ultimateAtk + getBondAtkBonus(); }
     void setDynamicAtk(int atk) { m_ultimateAtk = atk; }   // 回放/联机重建时恢复
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { ultimateSkill(board, allUnits); }
 private:
