@@ -2425,11 +2425,17 @@ void Synera::renderProjectiles(QPainter& painter)
         {QColor(255,250,220), QColor(255,220,90),  QColor(200,160,30)},  // 4 终极
     };
 
-    for (const ProjectileEffect& e : m_projectileEffects) {
+    for (ProjectileEffect& e : m_projectileEffects) {
         int elapsed = m_frameCounter - e.startFrame;
         if (elapsed < 0 || e.duration <= 0) continue;
         double progress = (double)elapsed / e.duration;
         if (progress >= 1.0) continue;
+
+        // 跟踪目标实际位置（目标在飞行期间不移动，但保险起见仍实时更新）
+        if (e.target && !e.target->isDead() && !e.target->isDisappeared()) {
+            e.toX = e.target->getPosition().x;
+            e.toY = e.target->getPosition().y;
+        }
 
         const PC& pc = pcs[e.tint % 5];
         QPointF from = cellRect(e.fromX, e.fromY).center();
@@ -4308,7 +4314,8 @@ void Synera::processCombatFrame()
                 // 攻击（独立计时器）
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                     int dealt = u->attack(*target);
-                    if (dealt < 0) dealt = 0;   // 复活石触发时可能为负（回血），不计负输出
+                    if (dealt < 0) dealt = 0;
+                    Unit* fxTarget = target;   // 弹道目标（延迟其移动直到弹道结束）
                     u->addStatDealt(dealt);     // 战斗统计：普攻输出
 
                     // 命中特效：战士=斩击，刺客=快速斩击，法师=火球飞行弹道
@@ -4380,6 +4387,11 @@ void Synera::processCombatFrame()
                         });
                     }
 
+                    // 统一为所有弹道设置 target（延迟目标移动直到弹道结束）
+                    for (auto& pe : m_projectileEffects)
+                        if (pe.startFrame == m_frameCounter && pe.target == nullptr)
+                            pe.target = fxTarget;
+
                     u->gainMana();
                     u->gainMana2(); // Boss 进阶技能充能（其他单位空操作）
                     shareManaToMages(u, alive);
@@ -4422,8 +4434,18 @@ void Synera::processCombatFrame()
     }
 
     // 执行移动（附带轨迹粒子特效）
+    // 被活跃弹道锁定的单位延迟移动（弹道打在移动前的位置问题的修复）
     for (auto& m : moves) {
         if (m_board.isOccupied(m.to.x, m.to.y)) continue;
+        bool lockedByProjectile = false;
+        for (const auto& pe : m_projectileEffects) {
+            if (pe.target == m.unit
+                && m_frameCounter < pe.startFrame + pe.duration) {
+                lockedByProjectile = true;
+                break;
+            }
+        }
+        if (lockedByProjectile) continue;   // 等弹道结束后下一帧再移动
         Position old = m.unit->getPosition();
         m_board.removeUnit(old.x, old.y);
         m_board.placeUnit(m.unit, m.to.x, m.to.y);

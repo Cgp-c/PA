@@ -48,10 +48,11 @@ struct SlashEffect {
 
 struct ProjectileEffect {          // 飞行弹道（火球/箭矢/毒弹共用）
     int fromX, fromY;    // 发射者格子
-    int toX, toY;        // 目标格子
+    int toX, toY;        // 目标格子（每帧跟踪目标实际位置）
     int tint;            // 0=法师火球 1=射手箭矢 2=萨满毒弹
     int startFrame;
     int duration;
+    Unit* target = nullptr;   // 目标单位（飞行期间锁定其移动+跟踪位置）
 };
 
 struct HealEffect {                // 辅助治疗 "+" 粒子
