@@ -471,7 +471,7 @@ void Unit::revertBondAtkBonus(int bonus) { m_bondAtkBonus -= bonus; }
 
 void Unit::warriorSkill(Board& board, std::vector<Unit*>& allUnits)
 {
-    int dmg = static_cast<int>(SKILL_DMG * (1 + (m_starLevel / 2) * 0.5));
+    int dmg = static_cast<int>(statsOf(m_type).skillDmg * (1 + (m_starLevel / 2) * 0.5));
     Unit* best = nullptr;
     int bestDist = 999;
     for (Unit* u : allUnits) {
@@ -498,7 +498,7 @@ void Unit::mageSkill(Board& board, std::vector<Unit*>& allUnits)
         int dx = std::abs(u->getPosition().x - m_pos.x);
         int dy = std::abs(u->getPosition().y - m_pos.y);
         if (dx <= 2 && dy <= 2) {
-            u->applyBurning(4, MAGE_BURN_BASE + m_starLevel * 5);
+            u->applyBurning(4, statsOf(m_type).skillDmg + m_starLevel * 5);
         }
     }
 }
@@ -508,14 +508,20 @@ void Unit::mageSkill(Board& board, std::vector<Unit*>& allUnits)
 void Unit::supportSkill(Board& board, std::vector<Unit*>& allUnits)
 {
     (void)board;
-    int healAmt = static_cast<int>(SKILL_HEAL * (1 + (m_starLevel / 2) * 0.5));
-    std::vector<Unit*> sorted = allUnits;
+    int healAmt = static_cast<int>(statsOf(m_type).skillDmg * (1 + (m_starLevel / 2) * 0.5));
+    // 仅治疗友方（同阵营），按 HP 从低到高取前 2 名
+    std::vector<Unit*> sorted;
+    for (Unit* u : allUnits) {
+        if (u->isDead() || u->isDisappeared()) continue;
+        if (isOpponentOf(u)) continue;   // ★ 修复：跳过敌方（原版不筛阵营会奶敌人）
+        sorted.push_back(u);
+    }
     std::sort(sorted.begin(), sorted.end(), [](Unit* a, Unit* b) {
         return a->getHp() < b->getHp();
     });
     int healed = 0;
     for (Unit* u : sorted) {
-        if (u->isDead() || u->isDisappeared()) continue;
+        if (u->getHp() >= u->getMaxHp()) continue;   // 跳过满血
         u->heal(healAmt);
         if (++healed >= 2) break;
     }
@@ -525,7 +531,7 @@ void Unit::supportSkill(Board& board, std::vector<Unit*>& allUnits)
 
 void Unit::assassinSkill(Board& board, std::vector<Unit*>& allUnits)
 {
-    int dmg = static_cast<int>(SKILL_DMG * (1 + (m_starLevel / 2) * 0.5));
+    int dmg = static_cast<int>(statsOf(m_type).skillDmg * (1 + (m_starLevel / 2) * 0.5));
     Unit* best = nullptr;
     int bestDist = 999;
     for (Unit* u : allUnits) {
