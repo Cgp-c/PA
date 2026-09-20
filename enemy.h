@@ -90,6 +90,7 @@ public:
     explicit UltimateEnemy(int atk = ultimateStats().defaultAtk, int x = 0, int y = 0);
     int getAttackRange() const override { return ultimateStats().range; }
     int getAttackDamage() const override { return m_ultimateAtk; }
+    void setDynamicAtk(int atk) { m_ultimateAtk = atk; }   // 回放/联机重建时恢复
     void useSkill(Board& board, std::vector<Unit*>& allUnits) override { ultimateSkill(board, allUnits); }
 private:
     int m_ultimateAtk;

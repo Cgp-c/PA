@@ -324,6 +324,8 @@ void Synera::placePvpLineup(const QJsonObject& lineup, bool asHero, bool mirror)
         if (u->getType() == UnitType::Ultimate && ju.contains("atk")) {
             if (auto* uh = dynamic_cast<UltimateHero*>(u))
                 uh->setDynamicAtk(ju["atk"].toInt());
+            else if (auto* ue = dynamic_cast<UltimateEnemy*>(u))
+                ue->setDynamicAtk(ju["atk"].toInt());
         }
 
         int px = mirror ? Board::SIZE - 1 - ju["x"].toInt() : ju["x"].toInt();
@@ -844,6 +846,12 @@ void Synera::synthesizeUltimate(Unit* a, Unit* b, Unit* c, int placeX, int place
                 if (m_board.placeUnit(ult, x, y)) goto ult_placed;
     }
     ult_placed:
+
+    // 从棋盘移除素材 a/b（c 已移除），防止幽灵格占用
+    Position ap = a->getPosition();
+    Position bp = b->getPosition();
+    if (m_board.getUnitAt(ap.x, ap.y) == a) m_board.removeUnit(ap.x, ap.y);
+    if (m_board.getUnitAt(bp.x, bp.y) == b) m_board.removeUnit(bp.x, bp.y);
 
     // 消耗三个素材
     a->setDisappeared(true);
@@ -3814,10 +3822,11 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
     (caster->*skill)(m_board, alive);
 
     for (auto& kv : hpBefore) {
-        if (kv.first->isDead() || kv.first->isDisappeared()) continue;
         if (kv.first->hasReviveTriggered()) continue; // 复活触发，跳过死亡判定
-        int diff = kv.first->getHp() - kv.second;
-        if (diff != 0)
+        // 击杀的单位也要计入伤害统计（用快照 HP 而非当前 0）
+        const bool killed = kv.first->isDead() || kv.first->isDisappeared();
+        int diff = killed ? -kv.second : (kv.first->getHp() - kv.second);
+        if (diff != 0 && !killed)
             m_pendingDamageEvents[kv.first].push_back(diff);
         // 战斗统计：技能伤害/治疗归因给施法者（燃烧持续伤害另行结算，未计入）
         if (diff < 0) caster->addStatDealt(-diff);
@@ -3837,11 +3846,14 @@ void Synera::castAndSettle(Unit* caster, void (Unit::*skill)(Board&, std::vector
 // 吟咏魔典羁绊：法师施放者释放技能点时共享给其他己技巧师
 void Synera::shareManaToMages(Unit* caster, const std::vector<Unit*>& alive) const
 {
-    if (!(m_bondActive[1] && caster->getType() == UnitType::Mage
-          && isHeroSide(caster) && !caster->isClone()))
+    // 双阵营各自判定：法师羁绊按施法者所在阵营生效
+    const bool heroSide = isHeroSide(caster);
+    const bool bondOn = heroSide ? m_bondActive[1] : m_bondActiveEnemy[1];
+    if (!(bondOn && caster->getType() == UnitType::Mage && !caster->isClone()))
         return;
     for (Unit* mu : alive)
-        if (mu != caster && mu->getType() == UnitType::Mage && isHeroSide(mu) && !mu->isClone())
+        if (mu != caster && mu->getType() == UnitType::Mage
+            && isHeroSide(mu) == heroSide && !mu->isClone())
             mu->gainMana();
 }
 
@@ -3852,7 +3864,7 @@ void Synera::processBurningTick(std::vector<Unit*>& alive)
         if (u->isBurning()) {
             u->tickBurning();
             if (u->isDead() && !u->hasReviveTriggered()) {
-                if (isEnemySide(u)) {
+                if (isEnemySide(u) && !m_replayMode) {
                     m_pendingGold += enemyGoldValue(u);
                     tryEquipDrop();
                 }
@@ -3924,8 +3936,9 @@ void Synera::processAssassinSkills(std::vector<Unit*>& alive)
             bool tEnemy = isEnemySide(target);
             m_pendingDamageEvents[assassin].push_back(-assassin->getHp());
             m_pendingDamageEvents[target].push_back(-target->getHp());
-            assassin->takeDamage(assassin->getHp());
-            target->takeDamage(target->getHp());
+            // 互杀：绕过防御直接清零 HP（否则带甲刺客残血存活但被移出棋盘）
+            assassin->setHp(0);
+            target->setHp(0);
             assassin->resetMana();
             target->resetMana();
             if (!assassin->hasReviveTriggered()) {
@@ -4162,6 +4175,7 @@ void Synera::processCombatFrame()
                 // 攻击（独立计时器）
                 if (inRange && u->getAttackTimer() >= u->getAttackSpeed()) {
                     int dealt = u->attack(*target);
+                    if (dealt < 0) dealt = 0;   // 复活石触发时可能为负（回血），不计负输出
                     u->addStatDealt(dealt);     // 战斗统计：普攻输出
 
                     // 命中特效：战士=斩击，刺客=快速斩击，法师=火球飞行弹道
@@ -4197,6 +4211,16 @@ void Synera::processCombatFrame()
                             tryEquipDrop();
                         }
                         m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+                    }
+
+                    // 反伤击杀：攻击者被反弹致死时，防守方获得击杀奖励
+                    if (u->isDead() && !u->hasReviveTriggered()) {
+                        target->addStatKill();  // 防守方击杀
+                        if (isEnemySide(u) && !m_replayMode) {
+                            m_pendingGold += enemyGoldValue(u);
+                            tryEquipDrop();
+                        }
+                        m_board.removeUnit(u->getPosition().x, u->getPosition().y);
                     }
                     u->resetAttackTimer();
                 } else if (!inRange) {
@@ -4509,33 +4533,29 @@ void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<
     case 3: // 暗夜幻影
         spawnAssassinClones(assassins, alive);
         break;
-    case 4: // 全军出击
+    case 4: // 全军出击：面向当前阵营全部单位（checkBondsForSide 已过滤阵营）
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             u->applyBondManaMod(-20);
             u->applyBondAtkBonus(20);
             u->applyBondHpMult(1.5);
         }
         break;
-    case 5: // 箭雨风暴：2+射手 射程+1 ATK+10
+    case 5: // 箭雨风暴：2+射手
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Hunter && !u->isClone()) {
                 u->applyBondRangeBonus(1);
                 u->applyBondAtkBonus(10);
             }
         }
         break;
-    case 6: // 钢铁壁垒：2+骑士 HP×1.3
+    case 6: // 钢铁壁垒：2+骑士
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Knight && !u->isClone())
                 u->applyBondHpMult(1.3);
         }
         break;
-    case 7: // 瘟疫蔓延：2+萨满 ATK+15
+    case 7: // 瘟疫蔓延：2+萨满
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Shaman && !u->isClone())
                 u->applyBondAtkBonus(15);
         }
@@ -4546,9 +4566,8 @@ void Synera::applyBondEffect(int idx, std::vector<Unit*>& warriors, std::vector<
 void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
 {
     switch (idx) {
-    case 0: // 战斗不息
+    case 0: // 战斗不息（checkBondsForSide 已过滤阵营）
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Warrior && !u->isClone())
                 u->revertBondHpMult(2.0);
         }
@@ -4557,7 +4576,6 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
         break;
     case 2: // 生生不息
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Support && !u->isClone()) {
                 u->revertBondHealMult(2.0);
                 u->revertBondRangeBonus(1);
@@ -4569,7 +4587,6 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
         break;
     case 4: // 全军出击
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             u->revertBondManaMod(-20);
             u->revertBondAtkBonus(20);
             u->revertBondHpMult(1.5);
@@ -4577,7 +4594,6 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
         break;
     case 5: // 箭雨风暴
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Hunter && !u->isClone()) {
                 u->revertBondRangeBonus(1);
                 u->revertBondAtkBonus(10);
@@ -4586,14 +4602,12 @@ void Synera::revertBondEffect(int idx, std::vector<Unit*>& alive)
         break;
     case 6: // 钢铁壁垒
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Knight && !u->isClone())
                 u->revertBondHpMult(1.3);
         }
         break;
     case 7: // 瘟疫蔓延
         for (Unit* u : alive) {
-            if (!isHeroSide(u)) continue;
             if (u->getType() == UnitType::Shaman && !u->isClone())
                 u->revertBondAtkBonus(15);
         }
@@ -4680,13 +4694,18 @@ void Synera::previewBonds()
 
 void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vector<Unit*>& alive)
 {
+    if (assassins.empty()) return;
+    // 按第一个刺客的阵营生成分身（PvP 双端各自阵营的分身落在各自半场）
+    const bool heroSide = isHeroSide(assassins[0]);
+
     // 在 (cx,cy) 生成分身（星-1、0 法力、继承已激活的全体羁绊）
     auto spawnCloneAt = [&](Unit* src, int cx, int cy) {
-        Unit* clone = createUnitFromPool(UnitType::Assassin, true,
+        Unit* clone = createUnitFromPool(UnitType::Assassin, heroSide,
                                          std::max(0, src->getStarLevel() - 1));
         clone->setClone(true);
         clone->setMana(0); // 分身从0法力值开始
-        if (m_bondActive[4]) {
+        const bool allOut = heroSide ? m_bondActive[4] : m_bondActiveEnemy[4];
+        if (allOut) {
             clone->applyBondManaMod(-20);
             clone->applyBondAtkBonus(20);
             clone->applyBondHpMult(1.5);
@@ -4701,16 +4720,19 @@ void Synera::spawnAssassinClones(const std::vector<Unit*>& assassins, std::vecto
         // 先在我方半场随机找空位
         for (int attempt = 0; attempt < 50 && !placed; ++attempt) {
             int cx = std::rand() % Board::SIZE;
-            int cy = Board::SIZE / 2 + std::rand() % (Board::SIZE / 2);
+            int cy = heroSide ? (Board::SIZE / 2 + std::rand() % (Board::SIZE / 2))
+                              : (std::rand() % (Board::SIZE / 2));
             if (!m_board.isOccupied(cx, cy)) {
                 spawnCloneAt(src, cx, cy);
                 placed = true;
             }
         }
 
-        // 随机失败 → 顺序扫描兜底
+        // 随机失败 → 顺序扫描兜底（按阵营半场）
         if (!placed) {
-            for (int y = Board::SIZE / 2; y < Board::SIZE && !placed; ++y) {
+            const int y0 = heroSide ? Board::SIZE / 2 : 0;
+            const int y1 = heroSide ? Board::SIZE : Board::SIZE / 2;
+            for (int y = y0; y < y1 && !placed; ++y) {
                 for (int x = 0; x < Board::SIZE; ++x) {
                     if (!m_board.isOccupied(x, y)) {
                         spawnCloneAt(src, x, y);
