@@ -75,7 +75,7 @@ public:
     // 燃烧状态（萨满的毒复用同一 DOT 管线，green 标记控制渲染颜色）
     bool isBurning() const;
     int getBurningTurns() const;
-    bool isGreenDot() const { return m_dotGreen; }
+    bool isGreenDot() const { return m_poisonDot.active; }
     void applyBurning(int turns, int damage = 10, bool green = false);
     void tickBurning();
 
@@ -193,10 +193,15 @@ protected:
     int m_maxMana;
     int m_mana2;
     int m_maxMana2;
-    bool m_burning;
-    int m_burningTurns;
-    int m_burningDamage = 10;
-    bool m_dotGreen = false;
+    // DOT 双槽：火焰燃烧（红）与毒素（绿）可共存
+    // 共存时每 tick 伤害 = (火焰 + 毒素) × 1.2（特殊技能合体效果）
+    struct DotState {
+        bool active = false;
+        int turns = 0;
+        int damage = 0;
+    };
+    DotState m_fireDot;
+    DotState m_poisonDot;
     int m_moveSpeed;
     int m_attackSpeed;
     int m_moveTimer;

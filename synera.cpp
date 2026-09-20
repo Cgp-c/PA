@@ -560,9 +560,8 @@ void Synera::startCustomBattle()
     for (auto& up : m_units)
         if (up) up->resetBattleStats();
 
-    // 显式播种（确定性 + 回放）
     const unsigned battleSeed = static_cast<unsigned>(std::rand());
-    std::srand(battleSeed);
+    // srand 延迟到放置完成后
 
     // 防御性再校验：字段范围 + 总量上限（不信任跨窗口数据）
     const auto specs = m_customBattleWindow->specs();
@@ -586,6 +585,7 @@ void Synera::startCustomBattle()
         }
     }
 
+    std::srand(battleSeed);   // 放置完毕后才播种
     recordReplay(QString::fromUtf8("自定义战斗"), battleSeed);
     m_customBattle = true;
     m_showLevelLoss = false;
@@ -1239,9 +1239,9 @@ void Synera::startBattle()
     // 自定义模式的战斗只能从自定义难度窗口发起
     if (m_gameMode == GameMode::Custom) return;
 
-    // 显式播种：战斗全程确定可复现（回放的前提）
     const unsigned battleSeed = static_cast<unsigned>(std::rand());
-    std::srand(battleSeed);
+    // srand 延迟到放置完成后：回放重建不消耗 rand，原局放置消耗的 rand
+    // 不影响战斗起点的 RNG 状态（修复回放结局与实录不同的问题）
 
     auto placeRandom = [this](Unit* eu) { placeEnemyRandom(eu); };
 
@@ -1250,6 +1250,7 @@ void Synera::startBattle()
 
     if (m_gameMode == GameMode::Endless) {
         spawnEndlessWave();
+        std::srand(battleSeed);   // 放置完毕后才播种
         recordReplay(QString::fromUtf8("无尽 第%1波").arg(m_endlessWave), battleSeed);
         m_showLevelLoss = false;
         for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; }
@@ -1285,6 +1286,7 @@ void Synera::startBattle()
         placeRandom(boss);
     }
 
+    std::srand(battleSeed);   // ★ 放置完毕后才播种：双端/回放的 rand 状态一致
     recordReplay(QString("Level %1").arg(m_currentLevel), battleSeed);
     m_showLevelLoss = false;
     for (int i = 0; i < 8; ++i) { m_bondActive[i] = false; m_bondActiveEnemy[i] = false; } // 重置羁绊状态，让 checkAndApplyBonds 正确检测激活

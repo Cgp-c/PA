@@ -19,8 +19,8 @@ Unit::Unit(const std::string& name, int hp, int maxHp, int x, int y, UnitType ty
     , m_maxMana(maxMana)
     , m_mana2(0)
     , m_maxMana2(maxMana2)
-    , m_burning(false)
-    , m_burningTurns(0)
+    , m_fireDot{}
+    , m_poisonDot{}
     , m_moveSpeed(moveSpeed)
     , m_attackSpeed(attackSpeed)
     , m_moveTimer(0)
@@ -180,7 +180,7 @@ void Unit::knightSkill(Board& board, std::vector<Unit*>& allUnits)
         if (d < bestDist) { bestDist = d; best = u; }
     }
     if (best) {
-        best->takeDamage(getAttackDamage() * 2);
+        best->takeDamage(static_cast<int>(statsOf(m_type).skillDmg * (1 + (m_starLevel / 2) * 0.5)));
         if (best->isDead())
             board.removeUnit(best->getPosition().x, best->getPosition().y);
     }
@@ -230,24 +230,48 @@ void Unit::useSkill2(Board& board, std::vector<Unit*>& allUnits)
 
 // ─── 燃烧 ────────────────────────────────────────────────────
 
-bool Unit::isBurning() const { return m_burning; }
-int Unit::getBurningTurns() const { return m_burningTurns; }
+bool Unit::isBurning() const { return m_fireDot.active || m_poisonDot.active; }
+int Unit::getBurningTurns() const
+{
+    return std::max(m_fireDot.active ? m_fireDot.turns : 0,
+                    m_poisonDot.active ? m_poisonDot.turns : 0);
+}
 
 void Unit::applyBurning(int turns, int damage, bool green)
 {
-    m_dotGreen = green;
-    m_burning = true;
-    m_burningTurns = turns;
-    m_burningDamage = damage;
+    // 火焰与毒素各自独立施加，可共存（后者不覆盖前者）
+    if (green) {
+        m_poisonDot.active = true;
+        m_poisonDot.turns = turns;
+        m_poisonDot.damage = damage;
+    } else {
+        m_fireDot.active = true;
+        m_fireDot.turns = turns;
+        m_fireDot.damage = damage;
+    }
 }
 
 void Unit::tickBurning()
 {
-    if (!m_burning) return;
-    takeDamage(m_burningDamage);
-    --m_burningTurns;
-    if (m_burningTurns <= 0)
-        m_burning = false;
+    if (!m_fireDot.active && !m_poisonDot.active) return;
+
+    int totalDmg = 0;
+    const bool both = m_fireDot.active && m_poisonDot.active;
+
+    if (m_fireDot.active) {
+        totalDmg += m_fireDot.damage;
+        if (--m_fireDot.turns <= 0) m_fireDot.active = false;
+    }
+    if (m_poisonDot.active) {
+        totalDmg += m_poisonDot.damage;
+        if (--m_poisonDot.turns <= 0) m_poisonDot.active = false;
+    }
+
+    // 特殊技能合体效果：火焰 + 毒素共存 → 伤害 ×1.2
+    if (both)
+        totalDmg = static_cast<int>(totalDmg * 1.2);
+
+    takeDamage(totalDmg);
 }
 
 // ─── getter / setter ─────────────────────────────────────────
