@@ -4404,7 +4404,16 @@ void Synera::processCombatFrame()
                             m_pendingGold += enemyGoldValue(target);
                             tryEquipDrop();
                         }
-                        m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+                        // 弹道攻击：目标等弹道落地后再从棋盘消失（视觉同步）
+                        // 近战/斩击：立即移除（刀光特效即时命中）
+                        bool isProjectileKill = (u->getType() == UnitType::Mage
+                                              || u->getType() == UnitType::Hunter
+                                              || u->getType() == UnitType::Shaman
+                                              || u->getType() == UnitType::Ultimate
+                                              || atkRange >= 2);
+                        if (!isProjectileKill)
+                            m_board.removeUnit(target->getPosition().x, target->getPosition().y);
+                        // 弹道击杀的目标由帧末统一清理（弹道 duration 到期后移除）
                     }
 
                     // 反伤击杀：攻击者被反弹致死时，防守方获得击杀奖励
@@ -4483,12 +4492,20 @@ void Synera::processCombatFrame()
         }
     }
 
-    // 清理场上残留的死亡单位（部分死亡路径如Boss技能、燃烧结算
-    // 及复活石触发后再次被击杀的单位可能未被及时移除）
+    // 清理场上残留的死亡单位（弹道目标等弹道落地后再清除）
     for (int y = 0; y < Board::SIZE; ++y)
         for (int x = 0; x < Board::SIZE; ++x) {
             Unit* u = m_board.getUnitAt(x, y);
-            if (u && u->isDead())
+            if (!u || !u->isDead()) continue;
+            // 被活跃弹道锁定的目标暂不移除（弹道落地后下一帧自动清除）
+            bool waitingForProjectile = false;
+            for (const auto& pe : m_projectileEffects) {
+                if (pe.target == u && m_frameCounter < pe.startFrame + pe.duration) {
+                    waitingForProjectile = true;
+                    break;
+                }
+            }
+            if (!waitingForProjectile)
                 m_board.removeUnit(x, y);
         }
 
