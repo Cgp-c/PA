@@ -4868,7 +4868,16 @@ void Synera::bondStatesFromCounts(int warriorCount, int mageCount, int supportCo
     outActive[1] = (mageCount >= 2);
     outActive[2] = (supportCount >= 2);
     outActive[3] = (assassinCount >= 2);
-    outActive[4] = (warriorCount > 0 && mageCount > 0 && supportCount > 0 && assassinCount > 0);
+    // 全军出击：任意四种不同职业在场即可（原四职→含新职业任选四）
+    int distinctTypes = 0;
+    if (warriorCount > 0) ++distinctTypes;
+    if (mageCount > 0) ++distinctTypes;
+    if (supportCount > 0) ++distinctTypes;
+    if (assassinCount > 0) ++distinctTypes;
+    if (hunterCount > 0) ++distinctTypes;
+    if (knightCount > 0) ++distinctTypes;
+    if (shamanCount > 0) ++distinctTypes;
+    outActive[4] = (distinctTypes >= 4);
     outActive[5] = (hunterCount >= 2);        // 箭雨风暴
     outActive[6] = (knightCount >= 2);        // 钢铁壁垒
     outActive[7] = (shamanCount >= 2);        // 瘟疫蔓延
@@ -5121,7 +5130,7 @@ void Synera::renderBonds(QPainter& painter)
         {"吟咏魔典", "2法师:共享技能点"},
         {"生生不息", "2辅助:治疗翻倍+范围+1"},
         {"暗夜幻影", "2刺客:生成分身(星-1)"},
-        {"全军出击", "4职齐:全属性上升"},
+        {"全军出击", "任意4职业:全属性上升"},
         {"箭雨风暴", "2射手:射程+1攻+10"},
         {"钢铁壁垒", "2骑士:生命×1.3"},
         {"瘟疫蔓延", "2萨满:攻击+15"},
